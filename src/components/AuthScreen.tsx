@@ -59,7 +59,7 @@ export default function AuthScreen({ onAuthSuccess }: AuthScreenProps) {
   };
 
   return (
-    <div className="min-h-screen bg-slate-950 flex flex-col justify-center items-center p-4 font-sans relative overflow-hidden">
+    <div className="min-h-[100dvh] bg-slate-950 flex flex-col justify-center items-center p-4 font-sans relative overflow-hidden">
       
       {/* Background elegant flare */}
       <div className="absolute top-1/4 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[500px] h-[500px] bg-gradient-to-tr from-cyan-600/10 to-blue-600/5 rounded-full blur-[120px] pointer-events-none" />

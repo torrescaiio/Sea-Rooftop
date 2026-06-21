@@ -149,7 +149,7 @@ export default function Sidebar({ activeModule, setActiveModule, user, onSignOut
       </div>
 
       {/* Desktop Sidebar Sidebar container */}
-      <div className="hidden lg:block w-64 shrink-0 h-screen sticky top-0">
+      <div className="hidden lg:block w-64 shrink-0 h-[100dvh] sticky top-0">
         {sidebarContent}
       </div>
 

@@ -58,7 +58,7 @@ export default function App() {
   // Carregando estado de autenticação inicial
   if (checkingAuth) {
     return (
-      <div className="min-h-screen bg-slate-950 flex items-center justify-center font-sans">
+      <div className="min-h-[100dvh] bg-slate-950 flex items-center justify-center font-sans">
         <div className="text-center space-y-4">
           <div className="h-10 w-10 border-4 border-t-cyan-400 border-r-cyan-400 border-slate-800 rounded-full animate-spin mx-auto" />
           <p className="text-slate-400 text-xs font-mono tracking-widest uppercase">
@@ -99,7 +99,7 @@ export default function App() {
   };
 
   return (
-    <div className="h-screen overflow-hidden bg-slate-950 text-slate-100 flex flex-col lg:flex-row font-sans">
+    <div className="h-[100dvh] overflow-hidden bg-slate-950 text-slate-100 flex flex-col lg:flex-row font-sans">
       
       {/* 1. SIDEBAR NAVIGATION */}
       <Sidebar 
