@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { appDb } from "../firebase";
-import { StaffMember } from "../types";
+import { StaffMember, Occurrence } from "../types";
 import { 
   Users, 
   Plus, 
@@ -17,6 +17,7 @@ import {
 
 export default function EquipeModule() {
   const [colaboradores, setColaboradores] = useState<StaffMember[]>([]);
+  const [ocorrencias, setOcorrencias] = useState<Occurrence[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -34,9 +35,8 @@ export default function EquipeModule() {
   const [statusFilter, setStatusFilter] = useState<string>("todos");
   const [cargoFilter, setCargoFilter] = useState<string>("todos");
 
-  // Load from database / simulation
   useEffect(() => {
-    const unsubscribe = appDb.subscribe("equipe", 
+    const unsubscribeEquipe = appDb.subscribe("equipe", 
       (data) => {
         setColaboradores(data as StaffMember[]);
         setLoading(false);
@@ -47,7 +47,19 @@ export default function EquipeModule() {
       }
     );
 
-    return () => unsubscribe();
+    const unsubscribeOcorrencias = appDb.subscribe("ocorrencias",
+      (data) => {
+        setOcorrencias(data as Occurrence[]);
+      },
+      (err) => {
+        console.error("Erro ao ler ocorrências: ", err);
+      }
+    );
+
+    return () => {
+      unsubscribeEquipe();
+      unsubscribeOcorrencias();
+    };
   }, []);
 
   const handleOpenAdd = () => {
@@ -235,14 +247,39 @@ export default function EquipeModule() {
                   </td>
 
                   {/* Operational Notes / Situacao */}
-                  <td className="p-4 max-w-sm">
-                    {colab.situacaoAtual ? (
-                      <p className="text-xs text-slate-300 leading-relaxed bg-slate-950/30 border border-slate-850 p-2.5 rounded-lg font-mono">
-                        {colab.situacaoAtual}
-                      </p>
-                    ) : (
-                      <span className="text-slate-500 italic text-xs">Sem observações.</span>
-                    )}
+                  <td className="p-4 min-w-[250px] max-w-sm align-top">
+                    <div className="space-y-3">
+                      {colab.situacaoAtual ? (
+                        <p className="text-xs text-slate-300 leading-relaxed bg-slate-950/30 border border-slate-850 p-2.5 rounded-lg font-mono">
+                          {colab.situacaoAtual}
+                        </p>
+                      ) : (
+                        <span className="text-slate-500 italic text-xs">Sem observações descritas.</span>
+                      )}
+
+                      {(() => {
+                        const colabOccurrences = ocorrencias.filter(o => o.funcionarioEnvolvidoId === colab.id);
+                        if (colabOccurrences.length === 0) return null;
+                        return (
+                          <div className="space-y-1.5">
+                            <p className="text-[10px] uppercase font-mono tracking-wider text-rose-400 font-semibold">Ocorrências Vinculadas</p>
+                            <div className="flex flex-col gap-1.5">
+                              {colabOccurrences.map(occ => (
+                                <div key={occ.id} className="bg-rose-500/5 border border-rose-500/20 p-2 rounded-md text-xs font-mono text-slate-300 flex flex-col">
+                                  <div className="flex items-center justify-between mb-1">
+                                    <span className="font-semibold text-rose-400">{occ.data} - {occ.categoria}</span>
+                                    <span className={`text-[9px] px-1.5 py-0.5 rounded-sm uppercase tracking-widest ${occ.status === "Aberto" ? "bg-rose-500/20 text-rose-400" : "bg-emerald-500/20 text-emerald-400"}`}>
+                                      {occ.status}
+                                    </span>
+                                  </div>
+                                  <span className="text-[10px] text-slate-400 line-clamp-2" title={occ.descricaoDetalhada}>{occ.descricaoDetalhada}</span>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        );
+                      })()}
+                    </div>
                   </td>
 
                   {/* Status Badge */}

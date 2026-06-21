@@ -28,6 +28,7 @@ export interface Occurrence {
   categoria: 'Sistema' | 'Funcionários' | 'Logística' | 'Falta' | 'Atestados' | 'Cliente';
   descricaoDetalhada: string;
   responsavelResolucao: string;
+  funcionarioEnvolvidoId?: string;
   status: 'Aberto' | 'Resolvido';
   createdAt: string;
 }

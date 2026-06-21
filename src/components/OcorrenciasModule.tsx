@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { appDb } from "../firebase";
-import { Occurrence } from "../types";
+import { Occurrence, StaffMember } from "../types";
 import { 
   AlertTriangle, 
   Plus, 
@@ -23,6 +23,7 @@ import autoTable from "jspdf-autotable";
 
 export default function OcorrenciasModule() {
   const [ocorrencias, setOcorrencias] = useState<Occurrence[]>([]);
+  const [equipe, setEquipe] = useState<StaffMember[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -31,6 +32,7 @@ export default function OcorrenciasModule() {
   const [categoria, setCategoria] = useState<Occurrence["categoria"]>("Sistema");
   const [descricaoDetalhada, setDescricaoDetalhada] = useState("");
   const [responsavelResolucao, setResponsavelResolucao] = useState("");
+  const [funcionarioEnvolvidoId, setFuncionarioEnvolvidoId] = useState("");
   const [status, setStatus] = useState<"Aberto" | "Resolvido">("Aberto");
 
   // Filters State
@@ -39,7 +41,7 @@ export default function OcorrenciasModule() {
   const [statusFilter, setStatusFilter] = useState<string>("todos");
 
   useEffect(() => {
-    const unsubscribe = appDb.subscribe("ocorrencias", 
+    const unsubscribeOcorrencias = appDb.subscribe("ocorrencias", 
       (data) => {
         setOcorrencias(data as Occurrence[]);
         setLoading(false);
@@ -50,7 +52,19 @@ export default function OcorrenciasModule() {
       }
     );
 
-    return () => unsubscribe();
+    const unsubscribeEquipe = appDb.subscribe("equipe",
+      (data) => {
+        setEquipe(data as StaffMember[]);
+      },
+      (err) => {
+         console.error("Erro ao ler equipe", err);
+      }
+    );
+
+    return () => {
+      unsubscribeOcorrencias();
+      unsubscribeEquipe();
+    };
   }, []);
 
   const handleCreate = async (e: React.FormEvent) => {
@@ -66,6 +80,7 @@ export default function OcorrenciasModule() {
         categoria,
         descricaoDetalhada: descricaoDetalhada.trim(),
         responsavelResolucao: responsavelResolucao.trim(),
+        funcionarioEnvolvidoId: funcionarioEnvolvidoId || null,
         status
       };
 
@@ -74,6 +89,7 @@ export default function OcorrenciasModule() {
 
       setDescricaoDetalhada("");
       setResponsavelResolucao("");
+      setFuncionarioEnvolvidoId("");
       setShowModal(false);
     } catch (err: any) {
       alert("Erro ao adicionar ocorrência: " + err.message);
@@ -126,15 +142,17 @@ export default function OcorrenciasModule() {
     const doc = new jsPDF();
     doc.text("Relatório de Ocorrências", 14, 15);
     
-    const tableColumn = ["Data", "Categoria", "Descrição", "Responsável", "Status"];
+    const tableColumn = ["Data", "Categoria", "Descrição", "Responsável", "Funcionário", "Status"];
     const tableRows: any[] = [];
     
     filteredLogs.forEach(log => {
+      const func = log.funcionarioEnvolvidoId ? equipe.find(e => e.id === log.funcionarioEnvolvidoId) : null;
       const rowData = [
         log.data,
         log.categoria,
         log.descricaoDetalhada,
         log.responsavelResolucao,
+        func ? func.nome : "-",
         log.status
       ];
       tableRows.push(rowData);
@@ -274,10 +292,22 @@ export default function OcorrenciasModule() {
                     {log.descricaoDetalhada}
                   </p>
 
-                  <div className="flex items-center space-x-2 text-xs text-slate-400">
-                    <User className="h-3.5 w-3.5 text-slate-500" />
-                    <span>Resolvido por / Responsável:</span>
-                    <span className="font-semibold text-slate-300 font-mono bg-slate-950 px-2 py-0.5 rounded-md">{log.responsavelResolucao}</span>
+                  <div className="flex flex-col gap-2 md:flex-row md:items-center space-x-0 md:space-x-4 mt-2 mb-2">
+                    <div className="flex items-center space-x-2 text-xs text-slate-400">
+                      <User className="h-3.5 w-3.5 text-slate-500" />
+                      <span>Resolvido por / Responsável:</span>
+                      <span className="font-semibold text-slate-300 font-mono bg-slate-950 px-2 py-0.5 rounded-md">{log.responsavelResolucao}</span>
+                    </div>
+
+                    {log.funcionarioEnvolvidoId && (
+                      <div className="flex items-center space-x-2 text-xs text-slate-400">
+                        <User className="h-3.5 w-3.5 text-purple-500" />
+                        <span>Funcionário envolvido:</span>
+                        <span className="font-semibold text-purple-300 font-mono bg-purple-500/10 px-2 py-0.5 rounded-md border border-purple-500/20">
+                          {equipe.find(e => e.id === log.funcionarioEnvolvidoId)?.nome || "Desconhecido"}
+                        </span>
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>
@@ -376,6 +406,22 @@ export default function OcorrenciasModule() {
                   rows={4}
                   className="w-full bg-slate-950 border border-slate-850 rounded-lg p-3 text-slate-200 text-xs leading-relaxed focus:border-rose-500 focus:outline-none resize-none font-mono"
                 />
+              </div>
+
+              <div>
+                <label className="block text-xs font-mono uppercase tracking-wider text-slate-400 mb-1.5">
+                  Funcionário Envolvido (Opcional)
+                </label>
+                <select
+                  value={funcionarioEnvolvidoId}
+                  onChange={(e) => setFuncionarioEnvolvidoId(e.target.value)}
+                  className="w-full bg-slate-950 border border-slate-850 rounded-lg p-2.5 text-slate-200 text-sm focus:border-rose-500 focus:outline-none"
+                >
+                  <option value="">-- Não vincular funcionário --</option>
+                  {equipe.map(m => (
+                    <option key={m.id} value={m.id}>{m.nome} - {m.cargo}</option>
+                  ))}
+                </select>
               </div>
 
               <div>
