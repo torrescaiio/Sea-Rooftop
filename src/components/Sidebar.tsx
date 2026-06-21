@@ -13,7 +13,8 @@ import {
   LayoutDashboard,
   Menu,
   Settings,
-  X
+  X,
+  BookOpen
 } from "lucide-react";
 import { isFirebaseActive } from "../firebase";
 
@@ -36,6 +37,7 @@ export default function Sidebar({ activeModule, setActiveModule, user, onSignOut
     { id: "manutencao", name: "Manutenção & Facilities", icon: Wrench },
     { id: "compras", name: "Compras Gerais", icon: ShoppingCart },
     { id: "agenda", name: "Eventos & Atrações", icon: Sparkles },
+    { id: "contatos", name: "Agenda de Contatos", icon: BookOpen },
     { id: "configuracoes", name: "Configurações", icon: Settings },
   ];
 

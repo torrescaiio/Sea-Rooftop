@@ -24,10 +24,13 @@ export default function ComprasModule() {
 
   // Form states
   const [showModal, setShowModal] = useState(false);
+  const [editItemId, setEditItemId] = useState<string | null>(null);
   const [newItem, setNewItem] = useState("");
-  const [newCategoria, setNewCategoria] = useState<GeneralPurchase["categoria"]>("Bar");
+  const [newCategoria, setNewCategoria] = useState<string>("Bar");
   const [newQuantidade, setNewQuantidade] = useState(1);
   const [newStatus, setNewStatus] = useState<GeneralPurchase["status"]>("A Orçar");
+  const [newFornecedor, setNewFornecedor] = useState("");
+  const [newValorComprado, setNewValorComprado] = useState("");
 
   // Filter state
   const [searchTerm, setSearchTerm] = useState("");
@@ -49,7 +52,7 @@ export default function ComprasModule() {
     return () => unsubscribe();
   }, []);
 
-  const handleCreate = async (e: React.FormEvent) => {
+  const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newItem.trim() || newQuantidade <= 0) {
       alert("Por favor preencha o nome do item e garanta quantidade válida.");
@@ -57,22 +60,57 @@ export default function ComprasModule() {
     }
 
     try {
-      const data = {
+      const data: any = {
         item: newItem.trim(),
         categoria: newCategoria,
         quantidade: Number(newQuantidade),
-        status: newStatus
+        status: newStatus,
+        fornecedor: newFornecedor.trim(),
       };
+      
+      if (newValorComprado) {
+        data.valorComprado = Number(newValorComprado);
+      } else {
+        data.valorComprado = null; // Clear if empty
+      }
 
-      await appDb.add("compras_gerais", data);
+      if (editItemId) {
+        await appDb.update("compras_gerais", editItemId, data);
+      } else {
+        await appDb.add("compras_gerais", data);
+      }
       appDb.dispatchUpdate();
 
       setNewItem("");
       setNewQuantidade(1);
+      setNewFornecedor("");
+      setNewValorComprado("");
+      setEditItemId(null);
       setShowModal(false);
     } catch (err: any) {
       alert("Erro ao salvar: " + err.message);
     }
+  };
+
+  const openForm = (item?: GeneralPurchase) => {
+    if (item) {
+      setEditItemId(item.id);
+      setNewItem(item.item);
+      setNewCategoria(item.categoria);
+      setNewQuantidade(item.quantidade);
+      setNewStatus(item.status);
+      setNewFornecedor(item.fornecedor || "");
+      setNewValorComprado(item.valorComprado ? item.valorComprado.toString() : "");
+    } else {
+      setEditItemId(null);
+      setNewItem("");
+      setNewCategoria("Bar");
+      setNewQuantidade(1);
+      setNewStatus("A Orçar");
+      setNewFornecedor("");
+      setNewValorComprado("");
+    }
+    setShowModal(true);
   };
 
   const handleDelete = async (id: string) => {
@@ -129,7 +167,11 @@ export default function ComprasModule() {
 
   const handleExportPDF = () => {
     const doc = new jsPDF();
-    doc.text("Lista de Compras Semanal - Sea Rooftop", 14, 15);
+    let pdfTitle = "Lista de Compras Semanal - Sea Rooftop";
+    if (catFilter !== "todos") {
+       pdfTitle += ` (${catFilter})`;
+    }
+    doc.text(pdfTitle, 14, 15);
     doc.setFontSize(10);
     doc.text(`Data de geração: ${new Date().toLocaleDateString('pt-BR')}`, 14, 22);
     
@@ -210,7 +252,7 @@ export default function ComprasModule() {
             Exportar PDF
           </button>
           <button
-            onClick={() => setShowModal(true)}
+            onClick={() => openForm()}
             className="inline-flex items-center gap-2 bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-600 hover:to-blue-700 text-white font-medium text-sm px-4 py-2.5 rounded-lg shadow-lg hover:shadow-cyan-500/10 transition cursor-pointer"
           >
             <PlusCircle className="h-4 w-4" />
@@ -284,10 +326,10 @@ export default function ComprasModule() {
             <thead>
               <tr className="bg-slate-950/65 border-b border-slate-800/80 text-slate-400 text-xs font-mono tracking-wider uppercase">
                 <th className="p-4 font-semibold">Insumo / Item</th>
-                <th className="p-4 font-semibold w-40">Setor</th>
-                <th className="p-4 font-semibold w-44 text-center">Quantidade Solicitada</th>
-                <th className="p-4 font-semibold w-44">Status de Aquisição</th>
-                <th className="p-4 font-semibold w-24 text-center">Remover</th>
+                <th className="p-4 font-semibold w-40">Setor/Fornecedor</th>
+                <th className="p-4 font-semibold w-44 text-center">Quantidade</th>
+                <th className="p-4 font-semibold w-44 text-center">Valor / Status</th>
+                <th className="p-4 font-semibold w-24 text-center">Ações</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-800/50 text-slate-300 text-sm">
@@ -297,10 +339,15 @@ export default function ComprasModule() {
                     {ui.item}
                   </td>
                   
-                  <td className="p-4">
+                  <td className="p-4 flex flex-col items-start gap-2">
                     <span className={`inline-flex items-center px-2.5 py-0.5 rounded-md text-[10px] font-bold uppercase border tracking-wider ${getCategoryColor(ui.categoria)}`}>
                       {ui.categoria}
                     </span>
+                    {ui.fornecedor && (
+                      <span className="text-xs text-slate-500 font-mono" title="Fornecedor">
+                        🏭 {ui.fornecedor}
+                      </span>
+                    )}
                   </td>
 
                   {/* Quantity with quick adjusters */}
@@ -328,32 +375,47 @@ export default function ComprasModule() {
 
                   {/* Status Inline Switcher Badge */}
                   <td className="p-4">
-                    <select
-                      value={ui.status}
-                      onChange={(e) => handleUpdateStatus(ui.id, e.target.value as any)}
-                      className={`w-full py-1.5 px-3 rounded-lg text-xs font-bold uppercase leading-tight bg-slate-950 font-mono border ${
-                        ui.status === "Comprado"
-                          ? "text-emerald-400 border-emerald-500/20"
-                          : ui.status === "Solicitado"
-                          ? "text-amber-400 border-amber-500/20"
-                          : "text-slate-400 border-slate-800"
-                      }`}
-                    >
-                      <option value="A Orçar">A Orçar</option>
-                      <option value="Solicitado">Solicitado</option>
-                      <option value="Comprado">Comprado</option>
-                    </select>
+                    <div className="flex flex-col gap-2">
+                      {ui.valorComprado ? (
+                        <span className="text-xs text-emerald-400 font-mono font-bold text-center bg-emerald-500/10 px-2 py-1 rounded w-full border border-emerald-500/20">
+                          R$ {ui.valorComprado.toFixed(2)}
+                        </span>
+                      ) : null}
+                      <select
+                        value={ui.status}
+                        onChange={(e) => handleUpdateStatus(ui.id, e.target.value as any)}
+                        className={`w-full py-1.5 px-3 rounded-lg text-xs font-bold uppercase leading-tight bg-slate-950 font-mono border ${
+                          ui.status === "Comprado"
+                            ? "text-emerald-400 border-emerald-500/20"
+                            : ui.status === "Solicitado"
+                            ? "text-amber-400 border-amber-500/20"
+                            : "text-slate-400 border-slate-800"
+                        }`}
+                      >
+                        <option value="A Orçar">A Orçar</option>
+                        <option value="Solicitado">Solicitado</option>
+                        <option value="Comprado">Comprado</option>
+                      </select>
+                    </div>
                   </td>
 
-                  {/* Detach option */}
+                  {/* Actions */}
                   <td className="p-4 text-center">
-                    <button
-                      onClick={() => handleDelete(ui.id)}
-                      className="p-1.5 border border-slate-850 rounded-lg text-slate-500 hover:text-rose-450 hover:bg-rose-500/10 transition"
-                      title="Excluir solicitado"
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </button>
+                    <div className="flex justify-center gap-2">
+                      <button
+                        onClick={() => openForm(ui)}
+                        className="px-3 py-1.5 border border-slate-800 rounded-lg text-slate-400 font-medium hover:text-white hover:bg-slate-800 transition text-xs"
+                      >
+                        Edit
+                      </button>
+                      <button
+                        onClick={() => handleDelete(ui.id)}
+                        className="p-1.5 border border-slate-850 rounded-lg text-slate-500 hover:text-rose-450 hover:bg-rose-500/10 transition"
+                        title="Excluir solicitado"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -365,9 +427,9 @@ export default function ComprasModule() {
       {/* Action ADD Modal */}
       {showModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
-          <div className="w-full max-w-md bg-slate-900 border border-slate-800 rounded-2xl shadow-xl overflow-y-auto max-h-[90vh] animate-in zoom-in-95 duration-150">
+          <div className="w-full max-w-md bg-slate-900 border border-slate-800 rounded-2xl shadow-xl overflow-y-auto max-h-[90vh] pb-8 animate-in zoom-in-95 duration-150">
             <div className="flex items-center justify-between p-5 border-b border-slate-800">
-              <h3 className="text-lg font-bold text-white">Solicitar Pedido de Compra</h3>
+              <h3 className="text-lg font-bold text-white">{editItemId ? 'Editar Pedido' : 'Solicitar Pedido de Compra'}</h3>
               <button 
                 onClick={() => setShowModal(false)}
                 className="p-1.5 hover:bg-slate-800 text-slate-400 hover:text-white rounded-lg"
@@ -376,7 +438,7 @@ export default function ComprasModule() {
               </button>
             </div>
             
-            <form onSubmit={handleCreate} className="p-6 space-y-4">
+            <form onSubmit={handleSave} className="p-6 space-y-4">
               <div>
                 <label className="block text-xs font-mono uppercase tracking-wider text-slate-400 mb-1.5">
                   Item a Adquirir
@@ -437,9 +499,39 @@ export default function ComprasModule() {
                   className="w-full bg-slate-950 border border-slate-850 rounded-lg p-2.5 text-slate-200 text-sm focus:border-cyan-500 focus:outline-none"
                 >
                   <option value="A Orçar">A Orçar (Apenas Escrita)</option>
-                  <option value="Solicitado">Soliciatado Oficialmente</option>
+                  <option value="Solicitado">Solicitado Oficialmente</option>
                   <option value="Comprado">Comprado & Recebido</option>
                 </select>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-mono uppercase tracking-wider text-slate-400 mb-1.5">
+                    Fornecedor
+                  </label>
+                  <input
+                    type="text"
+                    value={newFornecedor}
+                    onChange={(e) => setNewFornecedor(e.target.value)}
+                    placeholder="Ex: Pão de Açúcar"
+                    className="w-full bg-slate-950 border border-slate-850 rounded-lg p-2.5 text-slate-200 text-sm focus:border-cyan-500 focus:outline-none"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-mono uppercase tracking-wider text-slate-400 mb-1.5">
+                    Valor de Compra (R$)
+                  </label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    value={newValorComprado}
+                    onChange={(e) => setNewValorComprado(e.target.value)}
+                    placeholder="0.00"
+                    className="w-full bg-slate-950 border border-slate-850 rounded-lg p-2.5 text-slate-200 text-sm focus:border-cyan-500 focus:outline-none"
+                  />
+                </div>
               </div>
 
               <div className="flex items-center justify-end space-x-3 pt-4 border-t border-slate-800">

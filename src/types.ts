@@ -56,6 +56,8 @@ export interface GeneralPurchase {
   item: string;
   categoria: string;
   quantidade: number;
+  fornecedor?: string;
+  valorComprado?: number;
   status: 'A Orçar' | 'Solicitado' | 'Comprado';
   createdAt: string;
 }
@@ -71,5 +73,14 @@ export interface AgendaEvent {
   cacheCusto: number;
   necessidadesTecnicas: string;
   status: 'A Confirmar' | 'Confirmado' | 'Cancelado';
+  createdAt: string;
+}
+
+export interface Contact {
+  id: string;
+  nome: string;
+  categoria: 'Músicos' | 'Extras' | 'Prestador de Serviços' | 'Hotel' | 'Outros';
+  telefone: string;
+  detalhes?: string;
   createdAt: string;
 }
