@@ -39,19 +39,20 @@ export default function DashboardModule() {
   }, []);
 
   // Basic computed fields
-  const activeStaff = equipe.filter(e => e.status === "ativo").length;
+  const activeStaff = equipe.filter(e => e.status === "Ativo").length;
   
-  const pendingTasks = checklist.filter(t => t.status === "pendente").length;
-  const completedTasks = checklist.filter(t => t.status === "concluido").length;
+  const pendingTasks = checklist.filter(t => t.status === "Pendente").length;
+  const completedTasks = checklist.filter(t => t.status === "Concluído").length;
   const checklistProgress = checklist.length === 0 ? 0 : Math.round((completedTasks / checklist.length) * 100);
 
-  const openOcorrencias = ocorrencias.filter(o => o.status !== "resolvido" && o.status !== "cancelado").length;
+  const openOcorrencias = ocorrencias.filter(o => o.status === "Aberto").length;
   
-  const pendingRepairs = reparos.filter(r => r.status === "pendente" || r.status === "em_andamento").length;
+  const pendingRepairs = reparos.filter(r => r.status === "Pendente" || r.status === "Em Andamento").length;
   
-  const pendingCompras = compras.filter(c => c.status === "solicitado" || c.status === "aprovado").length;
+  const pendingCompras = compras.filter(c => c.status === "A Orçar" || c.status === "Solicitado").length;
   
-  const upcomingEvents = agenda.filter(a => new Date(a.date) >= new Date() && a.status !== "cancelado").length;
+  const currentDate = new Date().toISOString().split("T")[0];
+  const upcomingEvents = agenda.filter(a => a.data >= currentDate && a.status !== "Cancelado").length;
 
   return (
     <div className="space-y-6">
