@@ -106,11 +106,15 @@ export default function ComprasModule() {
     }
   };
 
-  const getCategoryColor = (cat: GeneralPurchase["categoria"]) => {
+  const getCategoryColor = (cat: string) => {
     switch (cat) {
       case "Bar": return "text-amber-400 bg-amber-500/10 border-amber-500/20";
+      case "Vinho": return "text-rose-400 bg-rose-500/10 border-rose-500/20";
       case "Salão": return "text-cyan-400 bg-cyan-500/10 border-cyan-500/20";
       case "Estrutura": return "text-purple-400 bg-purple-500/10 border-purple-500/20";
+      case "Limpeza": return "text-teal-400 bg-teal-500/10 border-teal-500/20";
+      case "Cozinha": return "text-orange-400 bg-orange-500/10 border-orange-500/20";
+      case "Escritório": return "text-slate-300 bg-slate-500/10 border-slate-500/20";
       default: return "text-slate-400 border-slate-800";
     }
   };
@@ -125,28 +129,63 @@ export default function ComprasModule() {
 
   const handleExportPDF = () => {
     const doc = new jsPDF();
-    doc.text("Relatório de Compras Gerais", 14, 15);
+    doc.text("Lista de Compras Semanal - Sea Rooftop", 14, 15);
+    doc.setFontSize(10);
+    doc.text(`Data de geração: ${new Date().toLocaleDateString('pt-BR')}`, 14, 22);
     
-    const tableColumn = ["Item", "Categoria", "Valor Estimado", "Status"];
-    const tableRows: any[] = [];
-    
-    filteredItems.forEach(i => {
-      const rowData = [
-        i.item,
-        i.categoria,
-        `R$ ${i.valorEstimado.toFixed(2)}`,
-        i.status
-      ];
-      tableRows.push(rowData);
-    });
+    // Group items by category to make a nice checklist
+    const itemsToBuy = filteredItems.filter(i => i.status !== "Comprado" && i.status !== "A Orçar"); // Usually we buy what is "Solicitado", but let's include "Solicitado" and "A Orçar" as things to buy
+    const activeItems = filteredItems.filter(i => i.status !== "Comprado");
 
-    autoTable(doc, {
-      head: [tableColumn],
-      body: tableRows,
-      startY: 20,
+    const categories: string[] = Array.from(new Set(activeItems.map(i => i.categoria)));
+    
+    let currentY = 30;
+
+    if (activeItems.length === 0) {
+      doc.text("Nenhum item pendente para compra nesta lista.", 14, currentY);
+    }
+
+    categories.forEach(cat => {
+      // Check if we need a new page
+      if (currentY > doc.internal.pageSize.getHeight() - 40) {
+        doc.addPage();
+        currentY = 20;
+      }
+
+      doc.setFontSize(12);
+      doc.setFont("helvetica", "bold");
+      doc.setTextColor(14, 165, 233); // Cyan color
+      doc.text(`Categoria: ${cat.toUpperCase()}`, 14, currentY);
+      currentY += 8;
+
+      const catItems = activeItems.filter(i => i.categoria === cat);
+      const tableRows: any[] = [];
+      
+      catItems.forEach(i => {
+        // Empty checkbox, Quantity, Item String
+        tableRows.push(["[  ]", i.quantidade.toString(), i.item, i.status]);
+      });
+
+      autoTable(doc, {
+        head: [["[X]", "Qtd", "Nome do Item", "Status Atual"]],
+        body: tableRows,
+        startY: currentY,
+        styles: { fontSize: 10 },
+        headStyles: { fillColor: [15, 23, 42] }, // Slate 900
+        columnStyles: {
+          0: { cellWidth: 15, halign: 'center' },
+          1: { cellWidth: 15, halign: 'center' },
+          2: { cellWidth: 'auto' },
+          3: { cellWidth: 40 }
+        },
+        didDrawPage: (data) => {
+           currentY = data.cursor?.y || currentY;
+        }
+      });
+      currentY += 10; // extra padding after table
     });
     
-    doc.save("compras-export.pdf");
+    doc.save("lista-de-compras.pdf");
   };
 
   return (
@@ -199,10 +238,14 @@ export default function ComprasModule() {
             onChange={(e) => setCatFilter(e.target.value)}
             className="w-full bg-slate-950 border border-slate-850 rounded-lg py-2 py-2 px-3 text-slate-300 text-sm focus:border-cyan-500 focus:outline-none"
           >
-            <option value="todos">Todos os Setores</option>
-            <option value="Bar">Bar / Bebidas & Gelo</option>
-            <option value="Salão">Salão / Atendimento</option>
-            <option value="Estrutura">Estrutura / Escritório</option>
+            <option value="todos">Todas as Categorias</option>
+            <option value="Bar">Bar / Bebidas</option>
+            <option value="Vinho">Adega / Vinhos</option>
+            <option value="Salão">Salão / Copa</option>
+            <option value="Cozinha">Cozinha / Insumos</option>
+            <option value="Limpeza">Limpeza / Produtos</option>
+            <option value="Escritório">Escritório / Papelaria</option>
+            <option value="Estrutura">Estrutura / Fixos</option>
           </select>
         </div>
 
@@ -355,12 +398,16 @@ export default function ComprasModule() {
                   </label>
                   <select
                     value={newCategoria}
-                    onChange={(e) => setNewCategoria(e.target.value as any)}
+                    onChange={(e) => setNewCategoria(e.target.value)}
                     className="w-full bg-slate-950 border border-slate-850 rounded-lg p-2.5 text-slate-200 text-sm focus:border-cyan-500 focus:outline-none"
                   >
-                    <option value="Bar">Bar / Bebidas</option>
+                    <option value="Bar">Bar / Bebidas & Gelo</option>
+                    <option value="Vinho">Adega / Vinhos</option>
                     <option value="Salão">Salão / Copa</option>
-                    <option value="Estrutura">Estrutura / Interna</option>
+                    <option value="Cozinha">Cozinha / Insumos</option>
+                    <option value="Limpeza">Limpeza / Manutenção</option>
+                    <option value="Escritório">Escritório / Papelaria</option>
+                    <option value="Estrutura">Estrutura / Fixos</option>
                   </select>
                 </div>
 

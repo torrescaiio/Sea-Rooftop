@@ -53,7 +53,7 @@ export interface MaintenancePurchase {
 export interface GeneralPurchase {
   id: string;
   item: string;
-  categoria: 'Bar' | 'Salão' | 'Estrutura';
+  categoria: string;
   quantidade: number;
   status: 'A Orçar' | 'Solicitado' | 'Comprado';
   createdAt: string;
