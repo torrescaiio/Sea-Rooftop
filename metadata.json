@@ -1,5 +1,5 @@
 {
-  "name": "Sea Rooftop - Command Center",
+  "name": "Sea Rooftop Command Center",
   "description": "Dashboard de gestão operacional para o Sea Rooftop, incluindo equipe, reservas, checklists, ocorrências, manutenção, compras e atrações do restaurante.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
