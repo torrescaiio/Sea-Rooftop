@@ -9,6 +9,7 @@ import {
   reauthenticateWithCredential,
   EmailAuthProvider,
   sendPasswordResetEmail,
+  updateProfile,
   User
 } from "firebase/auth";
 import { 
@@ -261,6 +262,28 @@ export const appAuth = {
     } else {
       await sleep(600);
       if (newPassword.length < 6) throw new Error("A senha deve conter no mínimo 6 caracteres.");
+    }
+  },
+
+  updateProfile: async (displayName: string, role?: string): Promise<void> => {
+    if (isConfigured) {
+      if (!auth.currentUser) throw new Error("Usuário não está logado para atualizar perfil.");
+      try {
+        await updateProfile(auth.currentUser, { displayName });
+        // role saving in firestore if needed, but for now we focus on auth profile
+      } catch (error: any) {
+        throw new Error(error.message);
+      }
+    } else {
+      await sleep(600);
+      const userStr = localStorage.getItem("sea_rooftop_auth_user");
+      if (userStr) {
+        const user = JSON.parse(userStr);
+        user.name = displayName;
+        if (role) user.role = role;
+        user.displayName = displayName;
+        localStorage.setItem("sea_rooftop_auth_user", JSON.stringify(user));
+      }
     }
   },
 

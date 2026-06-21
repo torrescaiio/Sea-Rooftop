@@ -92,7 +92,7 @@ export default function App() {
       case "agenda":
         return <AgendaModule />;
       case "configuracoes":
-        return <ConfiguracoesModule />;
+        return <ConfiguracoesModule user={activeUser} />;
       default:
         return <DashboardModule />;
     }

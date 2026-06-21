@@ -1,8 +1,8 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { appAuth } from "../firebase";
-import { Lock, UserPlus, ShieldCheck, AlertCircle, Save } from "lucide-react";
+import { Lock, UserPlus, ShieldCheck, AlertCircle, Save, User as UserIcon } from "lucide-react";
 
-export default function ConfiguracoesModule() {
+export default function ConfiguracoesModule({ user }: { user?: any }) {
   const [newEmail, setNewEmail] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [createLoad, setCreateLoad] = useState(false);
@@ -12,6 +12,37 @@ export default function ConfiguracoesModule() {
   const [newTargetPassword, setNewTargetPassword] = useState("");
   const [changePassLoad, setChangePassLoad] = useState(false);
   const [changePassMsg, setChangePassMsg] = useState<{ type: "success" | "error"; text: string } | null>(null);
+
+  const [profileName, setProfileName] = useState("");
+  const [profileRole, setProfileRole] = useState("");
+  const [profileLoad, setProfileLoad] = useState(false);
+  const [profileMsg, setProfileMsg] = useState<{ type: "success" | "error"; text: string } | null>(null);
+
+  useEffect(() => {
+    if (user) {
+      setProfileName(user.displayName || user.name || "");
+      setProfileRole(user.role || "");
+    }
+  }, [user]);
+
+  const handleUpdateProfile = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!profileName.trim()) return;
+
+    setProfileLoad(true);
+    setProfileMsg(null);
+    try {
+      await appAuth.updateProfile(profileName.trim(), profileRole.trim());
+      setProfileMsg({ type: "success", text: "Perfil atualizado com sucesso!" });
+      setTimeout(() => {
+        window.location.reload();
+      }, 1500);
+    } catch (err: any) {
+      setProfileMsg({ type: "error", text: "Erro ao atualizar perfil: " + err.message });
+    } finally {
+      setProfileLoad(false);
+    }
+  };
 
   const handleCreateAccount = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -28,6 +59,9 @@ export default function ConfiguracoesModule() {
       setCreateMsg({ type: "success", text: "Conta criada com sucesso! Você foi conectado à nova conta." });
       setNewEmail("");
       setNewPassword("");
+      setTimeout(() => {
+        window.location.reload();
+      }, 1500);
     } catch (err: any) {
       setCreateMsg({ type: "error", text: err.message });
     } finally {
@@ -56,70 +90,70 @@ export default function ConfiguracoesModule() {
   return (
     <div className="space-y-6 max-w-4xl mx-auto">
       <header className="mb-8">
-        <h1 className="text-2xl font-bold text-slate-100 font-sans tracking-tight">Configurações de Acesso</h1>
-        <p className="text-sm font-mono text-slate-400 mt-1">Gerenciamento de credenciais operacionais</p>
+        <h1 className="text-2xl font-bold text-slate-100 font-sans tracking-tight">Configurações do Usuário</h1>
+        <p className="text-sm font-mono text-slate-400 mt-1">Gerenciamento de perfil e credenciais</p>
       </header>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        {/* Create new account */}
-        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-sm flex flex-col">
+        
+        {/* Profile Settings */}
+        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-sm flex flex-col md:col-span-2 lg:col-span-1">
           <div className="flex items-center space-x-3 mb-6 shrink-0">
-            <div className="p-2.5 bg-emerald-500/10 rounded-xl">
-              <UserPlus className="h-5 w-5 text-emerald-400" />
+            <div className="p-2.5 bg-blue-500/10 rounded-xl">
+              <UserIcon className="h-5 w-5 text-blue-400" />
             </div>
             <div>
-              <h2 className="text-base font-semibold text-white">Criar Nova Conta</h2>
-              <p className="text-xs text-slate-400">Adicionar novo usuário operacional</p>
+              <h2 className="text-base font-semibold text-white">Meu Perfil</h2>
+              <p className="text-xs text-slate-400">Informações pessoais e cargo</p>
             </div>
           </div>
 
-          <form onSubmit={handleCreateAccount} className="space-y-4 flex-1 flex flex-col">
-            {createMsg && (
-              <div className={`p-3 text-xs rounded-xl flex items-center gap-2 ${createMsg.type === "success" ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20" : "bg-rose-500/10 text-rose-400 border border-rose-500/20"}`}>
-                {createMsg.type === "success" ? <ShieldCheck className="h-4 w-4 shrink-0" /> : <AlertCircle className="h-4 w-4 shrink-0" />}
-                <span>{createMsg.text}</span>
+          <form onSubmit={handleUpdateProfile} className="space-y-4 flex-1 flex flex-col">
+            {profileMsg && (
+              <div className={`p-3 text-xs rounded-xl flex items-center gap-2 ${profileMsg.type === "success" ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20" : "bg-rose-500/10 text-rose-400 border border-rose-500/20"}`}>
+                {profileMsg.type === "success" ? <ShieldCheck className="h-4 w-4 shrink-0" /> : <AlertCircle className="h-4 w-4 shrink-0" />}
+                <span>{profileMsg.text}</span>
               </div>
             )}
             <div>
               <label className="block text-xs font-mono uppercase tracking-wider text-slate-400 mb-1.5">
-                E-mail
+                Nome Completo
               </label>
               <input
-                type="email"
+                type="text"
                 required
-                value={newEmail}
-                onChange={(e) => setNewEmail(e.target.value)}
-                placeholder="novo@searooftop.com.br"
-                className="w-full bg-slate-950 border border-slate-850 rounded-lg p-2.5 text-slate-200 text-sm focus:border-emerald-500 focus:outline-none"
+                value={profileName}
+                onChange={(e) => setProfileName(e.target.value)}
+                placeholder="Ex. João Silva"
+                className="w-full bg-slate-950 border border-slate-850 rounded-lg p-2.5 text-slate-200 text-sm focus:border-blue-500 focus:outline-none"
               />
             </div>
             <div>
               <label className="block text-xs font-mono uppercase tracking-wider text-slate-400 mb-1.5">
-                Senha Provisória
+                Cargo / Função
               </label>
               <input
-                type="password"
-                required
-                value={newPassword}
-                onChange={(e) => setNewPassword(e.target.value)}
-                placeholder="••••••••"
-                className="w-full bg-slate-950 border border-slate-850 rounded-lg p-2.5 text-slate-200 text-sm focus:border-emerald-500 focus:outline-none"
+                type="text"
+                value={profileRole}
+                onChange={(e) => setProfileRole(e.target.value)}
+                placeholder="Ex. Gerente Geral"
+                className="w-full bg-slate-950 border border-slate-850 rounded-lg p-2.5 text-slate-200 text-sm focus:border-blue-500 focus:outline-none"
               />
             </div>
             <div className="pt-2 mt-auto">
               <button
                 type="submit"
-                disabled={createLoad}
-                className="w-full py-2.5 bg-slate-800 hover:bg-slate-700 text-emerald-400 font-medium rounded-lg transition border border-slate-700 hover:border-slate-600 disabled:opacity-50 flex justify-center items-center gap-2 cursor-pointer min-h-[44px]"
+                disabled={profileLoad}
+                className="w-full py-2.5 bg-slate-800 hover:bg-slate-700 text-blue-400 font-medium rounded-lg transition border border-slate-700 hover:border-slate-600 disabled:opacity-50 flex justify-center items-center gap-2 cursor-pointer min-h-[44px]"
               >
-                {createLoad ? "Processando..." : "Criar Conta"}
+                {profileLoad ? "Salvando..." : <><Save className="w-4 h-4"/> Atualizar Perfil</>}
               </button>
             </div>
           </form>
         </div>
 
         {/* Change password */}
-        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-sm flex flex-col">
+        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-sm flex flex-col md:col-span-2 lg:col-span-1">
           <div className="flex items-center space-x-3 mb-6 shrink-0">
             <div className="p-2.5 bg-cyan-500/10 rounded-xl">
               <Lock className="h-5 w-5 text-cyan-400" />
@@ -182,6 +216,64 @@ export default function ConfiguracoesModule() {
             </div>
           </form>
         </div>
+
+        {/* Create new account */}
+        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-sm flex flex-col md:col-span-2">
+          <div className="flex items-center space-x-3 mb-6 shrink-0">
+            <div className="p-2.5 bg-emerald-500/10 rounded-xl">
+              <UserPlus className="h-5 w-5 text-emerald-400" />
+            </div>
+            <div>
+              <h2 className="text-base font-semibold text-white">Criar Nova Conta</h2>
+              <p className="text-xs text-slate-400">Adicionar novo usuário ao sistema</p>
+            </div>
+          </div>
+
+          <form onSubmit={handleCreateAccount} className="space-y-4 flex-1 flex flex-col md:grid md:grid-cols-2 md:gap-4 md:space-y-0">
+            {createMsg && (
+              <div className={`p-3 text-xs rounded-xl flex items-center gap-2 md:col-span-2 ${createMsg.type === "success" ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20" : "bg-rose-500/10 text-rose-400 border border-rose-500/20"}`}>
+                {createMsg.type === "success" ? <ShieldCheck className="h-4 w-4 shrink-0" /> : <AlertCircle className="h-4 w-4 shrink-0" />}
+                <span>{createMsg.text}</span>
+              </div>
+            )}
+            <div>
+              <label className="block text-xs font-mono uppercase tracking-wider text-slate-400 mb-1.5">
+                E-mail
+              </label>
+              <input
+                type="email"
+                required
+                value={newEmail}
+                onChange={(e) => setNewEmail(e.target.value)}
+                placeholder="novo@searooftop.com.br"
+                className="w-full bg-slate-950 border border-slate-850 rounded-lg p-2.5 text-slate-200 text-sm focus:border-emerald-500 focus:outline-none"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-mono uppercase tracking-wider text-slate-400 mb-1.5">
+                Senha Provisória
+              </label>
+              <input
+                type="password"
+                required
+                value={newPassword}
+                onChange={(e) => setNewPassword(e.target.value)}
+                placeholder="••••••••"
+                className="w-full bg-slate-950 border border-slate-850 rounded-lg p-2.5 text-slate-200 text-sm focus:border-emerald-500 focus:outline-none"
+              />
+            </div>
+            <div className="pt-2 md:col-span-2">
+              <button
+                type="submit"
+                disabled={createLoad}
+                className="w-full py-2.5 bg-slate-800 hover:bg-slate-700 text-emerald-400 font-medium rounded-lg transition border border-slate-700 hover:border-slate-600 disabled:opacity-50 flex justify-center items-center gap-2 cursor-pointer min-h-[44px]"
+              >
+                {createLoad ? "Processando..." : "Criar Conta"}
+              </button>
+            </div>
+          </form>
+        </div>
+
       </div>
     </div>
   );
