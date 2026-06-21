@@ -8,7 +8,10 @@ import {
   ShoppingCart, 
   Sparkles,
   TrendingUp,
-  Activity
+  Activity,
+  Zap,
+  Plus,
+  X
 } from "lucide-react";
 
 export default function DashboardModule() {
@@ -18,6 +21,14 @@ export default function DashboardModule() {
   const [reparos, setReparos] = useState<any[]>([]);
   const [compras, setCompras] = useState<any[]>([]);
   const [agenda, setAgenda] = useState<any[]>([]);
+
+  const [quickAction, setQuickAction] = useState<'ocorrencia' | 'compra' | null>(null);
+  
+  // Quick Action form state
+  const [qaItem, setQaItem] = useState("");
+  const [qaDesc, setQaDesc] = useState("");
+  const [qaQtd, setQaQtd] = useState(1);
+
 
   useEffect(() => {
     // Subs to all collections for summary
@@ -54,132 +65,266 @@ export default function DashboardModule() {
   const currentDate = new Date().toISOString().split("T")[0];
   const upcomingEvents = agenda.filter(a => a.data >= currentDate && a.status !== "Cancelado").length;
 
+  const handleCreateOccurrence = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!qaDesc.trim()) return;
+    try {
+      await appDb.add("ocorrencias", {
+        data: new Date().toLocaleDateString('pt-BR'),
+        categoria: "Sistema",
+        descricaoDetalhada: qaDesc.trim(),
+        responsavelResolucao: "Operador (Quick Action)",
+        funcionarioEnvolvidoId: null,
+        status: "Aberto"
+      });
+      appDb.dispatchUpdate();
+      setQuickAction(null);
+      setQaDesc("");
+    } catch (err: any) { alert(err.message); }
+  };
+
+  const handleCreatePurchase = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!qaItem.trim() || qaQtd <= 0) return;
+    try {
+      await appDb.add("compras_gerais", {
+        item: qaItem.trim(),
+        categoria: "Bar",
+        quantidade: Number(qaQtd),
+        status: "A Orçar",
+        fornecedor: "",
+        valorComprado: null
+      });
+      appDb.dispatchUpdate();
+      setQuickAction(null);
+      setQaItem("");
+      setQaQtd(1);
+    } catch (err: any) { alert(err.message); }
+  };
+
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-2xl font-semibold text-white tracking-tight flex items-center gap-2">
-            <Activity className="h-6 w-6 text-cyan-400" />
-            Visão Geral da Operação
-          </h2>
-          <p className="text-sm text-slate-400 mt-1">
-            Resumo em tempo real do ecossistema Sea Rooftop.
-          </p>
-        </div>
+    <div className="space-y-8">
+      <div className="flex flex-col gap-2">
+        <h2 className="text-3xl md:text-5xl font-bold text-white tracking-tight flex items-center gap-3">
+          <Activity className="h-8 w-8 md:h-12 md:w-12 text-cyan-500" />
+          VISÃO GERAL
+        </h2>
+        <p className="text-slate-400 font-mono tracking-widest uppercase text-xs">
+          Resumo em tempo real do ecossistema • Sea Rooftop
+        </p>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-6">
         
         {/* Equipe Stats */}
-        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-sm flex flex-col justify-between hover:border-slate-700 transition">
-          <div className="flex items-start justify-between mb-4">
-            <div className="h-10 w-10 rounded-xl bg-indigo-500/10 flex items-center justify-center border border-indigo-500/20">
-              <Users className="h-5 w-5 text-indigo-400" />
+        <div className="bg-[#0A0A0A] border border-white/10 rounded-2xl p-6 flex flex-col justify-between hover:border-indigo-500/50 transition-colors">
+          <div className="flex items-start justify-between mb-8">
+            <div className="p-3 rounded-lg bg-indigo-500/10 border border-indigo-500/20 text-indigo-400">
+              <Users className="h-6 w-6" />
             </div>
-            <span className="text-xs font-medium px-2.5 py-1 bg-indigo-500/10 text-indigo-400 rounded-full border border-indigo-500/20">
+            <span className="text-[10px] font-bold tracking-widest px-3 py-1 bg-indigo-500/10 text-indigo-400 rounded-full border border-indigo-500/20 uppercase">
               Equipe
             </span>
           </div>
           <div>
-            <div className="text-3xl font-bold text-white mb-1">{activeStaff}</div>
-            <p className="text-sm text-slate-400">Colaboradores ativos de um total de {equipe.length}.</p>
+            <div className="text-5xl font-bold text-white mb-2 tracking-tight">{activeStaff}</div>
+            <p className="text-xs font-mono uppercase tracking-wider text-slate-500">Colaboradores ativos de {equipe.length}</p>
           </div>
         </div>
 
         {/* Checklist Stats */}
-        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-sm flex flex-col justify-between hover:border-slate-700 transition">
-          <div className="flex items-start justify-between mb-4">
-            <div className="h-10 w-10 rounded-xl bg-emerald-500/10 flex items-center justify-center border border-emerald-500/20">
-              <CheckSquare className="h-5 w-5 text-emerald-400" />
+        <div className="bg-[#0A0A0A] border border-white/10 rounded-2xl p-6 flex flex-col justify-between hover:border-emerald-500/50 transition-colors">
+          <div className="flex items-start justify-between mb-8">
+            <div className="p-3 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-400">
+              <CheckSquare className="h-6 w-6" />
             </div>
-            <span className="text-xs font-medium px-2.5 py-1 bg-emerald-500/10 text-emerald-400 rounded-full border border-emerald-500/20">
+            <span className="text-[10px] font-bold tracking-widest px-3 py-1 bg-emerald-500/10 text-emerald-400 rounded-full border border-emerald-500/20 uppercase">
               Checklist
             </span>
           </div>
           <div>
-            <div className="flex items-end gap-2 mb-2">
-              <div className="text-3xl font-bold text-white">{pendingTasks}</div>
-              <div className="text-sm text-slate-400 pb-1">tarefas pendentes</div>
+            <div className="flex items-end gap-3 mb-4">
+              <div className="text-5xl font-bold text-white tracking-tight">{pendingTasks}</div>
+              <div className="text-xs font-mono uppercase tracking-wider text-slate-500 pb-1.5">pendentes</div>
             </div>
-            <div className="w-full bg-slate-950 rounded-full h-1.5 mb-1.5 overflow-hidden">
-              <div className="bg-emerald-500 h-1.5 rounded-full transition-all duration-500" style={{ width: `${checklistProgress}%` }}></div>
+            <div className="w-full bg-white/5 rounded-full h-2 mb-2 overflow-hidden border border-white/5">
+              <div className="bg-emerald-500 h-2 rounded-full transition-all duration-500" style={{ width: `${checklistProgress}%` }}></div>
             </div>
-            <p className="text-xs text-slate-500">{checklistProgress}% concluído hoje.</p>
+            <p className="text-[10px] font-bold font-mono tracking-widest text-emerald-500 uppercase">{checklistProgress}% concluído hoje</p>
           </div>
         </div>
 
         {/* Ocorrências Stats */}
-        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-sm flex flex-col justify-between hover:border-rose-900/50 transition relative overflow-hidden group">
+        <div className="bg-[#0A0A0A] border border-white/10 rounded-2xl p-6 flex flex-col justify-between hover:border-rose-500/50 transition-colors relative overflow-hidden group">
           {openOcorrencias > 0 && (
-             <div className="absolute top-0 right-0 p-4 opacity-10">
-                <AlertTriangle className="h-24 w-24 text-rose-500" />
+             <div className="absolute top-0 right-0 p-4 opacity-[0.03] group-hover:opacity-10 transition-opacity">
+                <AlertTriangle className="h-32 w-32 text-rose-500 shadow-xl" />
              </div>
           )}
-          <div className="flex items-start justify-between mb-4 relative z-10">
-            <div className={`h-10 w-10 rounded-xl flex items-center justify-center border ${openOcorrencias > 0 ? 'bg-rose-500/10 border-rose-500/20' : 'bg-slate-800 border-slate-700'}`}>
-              <AlertTriangle className={`h-5 w-5 ${openOcorrencias > 0 ? 'text-rose-400' : 'text-slate-400'}`} />
+          <div className="flex items-start justify-between mb-8 relative z-10">
+            <div className={`p-3 rounded-lg border ${openOcorrencias > 0 ? 'bg-rose-500/10 border-rose-500/20 text-rose-400' : 'bg-white/5 border-white/10 text-slate-400'}`}>
+              <AlertTriangle className="h-6 w-6" />
             </div>
-            <span className={`text-xs font-medium px-2.5 py-1 rounded-full border ${openOcorrencias > 0 ? 'bg-rose-500/10 text-rose-400 border-rose-500/20' : 'bg-slate-800 text-slate-400 border-slate-700'}`}>
+            <span className={`text-[10px] font-bold tracking-widest px-3 py-1 rounded-full border uppercase ${openOcorrencias > 0 ? 'bg-rose-500/10 text-rose-400 border-rose-500/20' : 'bg-white/5 text-slate-400 border-white/10'}`}>
               Ocorrências
             </span>
           </div>
           <div className="relative z-10">
-            <div className="text-3xl font-bold text-white mb-1">{openOcorrencias}</div>
-            <p className="text-sm text-slate-400">
-              {openOcorrencias === 0 ? "Nenhuma ocorrência em aberto." : "Ocorrências necessitam de atenção."}
+            <div className="text-5xl font-bold text-white mb-2 tracking-tight">{openOcorrencias}</div>
+            <p className="text-xs font-mono uppercase tracking-wider text-slate-500">
+              {openOcorrencias === 0 ? "Zero em aberto" : "Atenção necessária"}
             </p>
           </div>
         </div>
 
         {/* Manutenção Stats */}
-        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-sm flex flex-col justify-between hover:border-slate-700 transition">
-          <div className="flex items-start justify-between mb-4">
-            <div className="h-10 w-10 rounded-xl bg-orange-500/10 flex items-center justify-center border border-orange-500/20">
-              <Wrench className="h-5 w-5 text-orange-400" />
+        <div className="bg-[#0A0A0A] border border-white/10 rounded-2xl p-6 flex flex-col justify-between hover:border-orange-500/50 transition-colors">
+          <div className="flex items-start justify-between mb-8">
+            <div className="p-3 rounded-lg bg-orange-500/10 border border-orange-500/20 text-orange-400">
+              <Wrench className="h-6 w-6" />
             </div>
-            <span className="text-xs font-medium px-2.5 py-1 bg-orange-500/10 text-orange-400 rounded-full border border-orange-500/20">
+            <span className="text-[10px] font-bold tracking-widest px-3 py-1 bg-orange-500/10 text-orange-400 rounded-full border border-orange-500/20 uppercase">
               Manutenção
+
             </span>
           </div>
           <div>
-            <div className="text-3xl font-bold text-white mb-1">{pendingRepairs}</div>
-            <p className="text-sm text-slate-400">Reparos na fila ou em andamento.</p>
+            <div className="text-5xl font-bold text-white mb-2 tracking-tight">{pendingRepairs}</div>
+            <p className="text-xs font-mono uppercase tracking-wider text-slate-500">Reparos na fila ou andamento</p>
           </div>
         </div>
 
         {/* Compras Stats */}
-        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-sm flex flex-col justify-between hover:border-slate-700 transition">
-          <div className="flex items-start justify-between mb-4">
-            <div className="h-10 w-10 rounded-xl bg-sky-500/10 flex items-center justify-center border border-sky-500/20">
-              <ShoppingCart className="h-5 w-5 text-sky-400" />
+        <div className="bg-[#0A0A0A] border border-white/10 rounded-2xl p-6 flex flex-col justify-between hover:border-sky-500/50 transition-colors">
+          <div className="flex items-start justify-between mb-8">
+            <div className="p-3 rounded-lg bg-sky-500/10 border border-sky-500/20 text-sky-400">
+              <ShoppingCart className="h-6 w-6" />
             </div>
-            <span className="text-xs font-medium px-2.5 py-1 bg-sky-500/10 text-sky-400 rounded-full border border-sky-500/20">
+            <span className="text-[10px] font-bold tracking-widest px-3 py-1 bg-sky-500/10 text-sky-400 rounded-full border border-sky-500/20 uppercase">
               Compras
             </span>
           </div>
           <div>
-            <div className="text-3xl font-bold text-white mb-1">{pendingCompras}</div>
-            <p className="text-sm text-slate-400">Pedidos solicitados ou aprovados.</p>
+            <div className="text-5xl font-bold text-white mb-2 tracking-tight">{pendingCompras}</div>
+            <p className="text-xs font-mono uppercase tracking-wider text-slate-500">Pedidos aguardando compra</p>
           </div>
         </div>
 
         {/* Agenda Stats */}
-        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-sm flex flex-col justify-between hover:border-slate-700 transition">
-          <div className="flex items-start justify-between mb-4">
-            <div className="h-10 w-10 rounded-xl bg-fuchsia-500/10 flex items-center justify-center border border-fuchsia-500/20">
-              <Sparkles className="h-5 w-5 text-fuchsia-400" />
+        <div className="bg-[#0A0A0A] border border-white/10 rounded-2xl p-6 flex flex-col justify-between hover:border-fuchsia-500/50 transition-colors">
+          <div className="flex items-start justify-between mb-8">
+            <div className="p-3 rounded-lg bg-fuchsia-500/10 border border-fuchsia-500/20 text-fuchsia-400">
+              <Sparkles className="h-6 w-6" />
             </div>
-            <span className="text-xs font-medium px-2.5 py-1 bg-fuchsia-500/10 text-fuchsia-400 rounded-full border border-fuchsia-500/20">
+            <span className="text-[10px] font-bold tracking-widest px-3 py-1 bg-fuchsia-500/10 text-fuchsia-400 rounded-full border border-fuchsia-500/20 uppercase">
               Eventos
             </span>
           </div>
           <div>
-            <div className="text-3xl font-bold text-white mb-1">{upcomingEvents}</div>
-            <p className="text-sm text-slate-400">Eventos programados para o futuro.</p>
+            <div className="text-5xl font-bold text-white mb-2 tracking-tight">{upcomingEvents}</div>
+            <p className="text-xs font-mono uppercase tracking-wider text-slate-500">Agendamentos futuros</p>
           </div>
         </div>
 
       </div>
+
+      {/* QUICK ACTIONS BAR */}
+      <div className="mt-8 pt-8 border-t border-white/5">
+        <div className="flex items-center gap-3 mb-6">
+          <div className="p-2 rounded-lg bg-yellow-500/10 border border-yellow-500/20 text-yellow-400">
+            <Zap className="h-5 w-5" />
+          </div>
+          <h3 className="text-sm font-bold text-white tracking-widest uppercase">Ações Rápidas</h3>
+        </div>
+
+        <div className="flex flex-wrap gap-4">
+          <button
+            onClick={() => setQuickAction('ocorrencia')}
+            className="flex items-center gap-2 px-5 py-3 rounded-xl bg-white/5 border border-white/10 hover:border-rose-500/50 hover:bg-rose-500/10 hover:text-rose-400 text-slate-300 transition-colors font-semibold text-sm uppercase tracking-wider"
+          >
+            <Plus className="h-4 w-4" /> Nova Ocorrência
+          </button>
+          
+          <button
+            onClick={() => setQuickAction('compra')}
+            className="flex items-center gap-2 px-5 py-3 rounded-xl bg-white/5 border border-white/10 hover:border-sky-500/50 hover:bg-sky-500/10 hover:text-sky-400 text-slate-300 transition-colors font-semibold text-sm uppercase tracking-wider"
+          >
+            <Plus className="h-4 w-4" /> Registrar Compra
+          </button>
+        </div>
+      </div>
+
+      {quickAction === 'ocorrencia' && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
+          <div className="w-full max-w-md bg-[#0A0A0A] border border-white/10 rounded-2xl shadow-2xl p-6 relative">
+            <button onClick={() => setQuickAction(null)} className="absolute top-6 right-6 text-slate-500 hover:text-white transition">
+              <X className="h-5 w-5" />
+            </button>
+            <h3 className="text-xl font-bold text-white tracking-tight mb-6 flex items-center gap-2">
+              <AlertTriangle className="h-5 w-5 text-rose-500" />
+              NOVA OCORRÊNCIA
+            </h3>
+            <form onSubmit={handleCreateOccurrence} className="space-y-4">
+              <div>
+                <label className="block text-[10px] font-mono uppercase tracking-widest text-slate-500 mb-2">Descrição</label>
+                <textarea
+                  required
+                  rows={4}
+                  value={qaDesc}
+                  onChange={e => setQaDesc(e.target.value)}
+                  className="w-full bg-black border border-white/10 rounded-xl p-3 text-slate-200 text-sm focus:border-rose-500 focus:outline-none resize-none"
+                  placeholder="Relate o problema rapidamente..."
+                />
+              </div>
+              <button type="submit" className="w-full py-3 rounded-xl bg-rose-500/20 text-rose-400 font-bold uppercase tracking-widest text-xs hover:bg-rose-500/30 transition-colors border border-rose-500/20">
+                Enviar Ocorrência
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {quickAction === 'compra' && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
+          <div className="w-full max-w-md bg-[#0A0A0A] border border-white/10 rounded-2xl shadow-2xl p-6 relative">
+            <button onClick={() => setQuickAction(null)} className="absolute top-6 right-6 text-slate-500 hover:text-white transition">
+              <X className="h-5 w-5" />
+            </button>
+            <h3 className="text-xl font-bold text-white tracking-tight mb-6 flex items-center gap-2">
+              <ShoppingCart className="h-5 w-5 text-sky-500" />
+              NOVA COMPRA
+            </h3>
+            <form onSubmit={handleCreatePurchase} className="space-y-4">
+              <div>
+                <label className="block text-[10px] font-mono uppercase tracking-widest text-slate-500 mb-2">Nome do Item</label>
+                <input
+                  type="text"
+                  required
+                  value={qaItem}
+                  onChange={e => setQaItem(e.target.value)}
+                  className="w-full bg-black border border-white/10 rounded-xl p-3 text-slate-200 text-sm focus:border-sky-500 focus:outline-none"
+                  placeholder="O que precisa ser comprado?"
+                />
+              </div>
+              <div>
+                <label className="block text-[10px] font-mono uppercase tracking-widest text-slate-500 mb-2">Quantidade</label>
+                <input
+                  type="number"
+                  min="1"
+                  required
+                  value={qaQtd}
+                  onChange={e => setQaQtd(Number(e.target.value))}
+                  className="w-full bg-black border border-white/10 rounded-xl p-3 text-slate-200 text-sm focus:border-sky-500 focus:outline-none"
+                />
+              </div>
+              <button type="submit" className="w-full py-3 rounded-xl bg-sky-500/20 text-sky-400 font-bold uppercase tracking-widest text-xs hover:bg-sky-500/30 transition-colors border border-sky-500/20 mt-2">
+                Criar Solicitação
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }

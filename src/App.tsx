@@ -102,7 +102,7 @@ export default function App() {
   };
 
   return (
-    <div className="h-[100dvh] overflow-hidden bg-slate-950 text-slate-100 flex flex-col lg:flex-row font-sans">
+    <div className="h-[100dvh] overflow-hidden bg-black text-slate-300 flex flex-col lg:flex-row font-sans">
       
       {/* 1. SIDEBAR NAVIGATION */}
       <Sidebar 
@@ -113,37 +113,38 @@ export default function App() {
       />
 
       {/* 2. DYNAMIC WORKSPACE LAYER */}
-      <main className="flex-1 flex flex-col min-w-0 overflow-y-auto">
-        
-        {/* Top Header Panel */}
-        <header className="px-6 py-4 bg-slate-900 border-b border-slate-850 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 shrink-0">
-          <div>
-            <div className="flex items-center space-x-2">
-              <Sun className="h-4 w-4 text-amber-400 animate-spin-slow" />
-              <span className="text-[10px] font-mono text-slate-500 uppercase tracking-widest font-bold">
-                ESTAÇÃO ATIVA • SEA ROOFTOP
-              </span>
+      <main className="flex-1 flex flex-col min-w-0 overflow-y-auto lg:p-3 pb-0 lg:pb-3 pl-0 h-[100dvh]">
+        <div className="flex-1 flex flex-col bg-[#050505] lg:border border-slate-800 lg:rounded-2xl overflow-hidden shadow-2xl relative">
+          
+          {/* Top Header Panel */}
+          <header className="px-6 py-5 bg-transparent border-b border-white/[0.05] flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 shrink-0 z-10 backdrop-blur-md">
+            <div>
+              <div className="flex items-center space-x-2">
+                <Sun className="h-4 w-4 text-cyan-400 animate-spin-slow" />
+                <span className="text-[10px] font-mono text-cyan-500 uppercase tracking-widest font-bold">
+                  ESTAÇÃO ATIVA • SEA ROOFTOP
+                </span>
+              </div>
+              <h2 className="text-xl tracking-tight text-white mt-1">
+                Olá, {activeUser.displayName || "Operador"} 
+                <span className="text-slate-500 text-sm ml-2 font-normal"> (Acesso Gerencial Autorizado)</span>
+              </h2>
             </div>
-            <h2 className="text-sm font-semibold text-slate-200 mt-0.5">
-              Olá, {activeUser.displayName || "Operador"} 
-              <span className="text-slate-500 font-normal"> (Acesso Gerencial Autorizado)</span>
-            </h2>
-          </div>
 
-          {/* System Date Clock and helper */}
-          <div className="flex items-center space-x-4">
-            <div className="px-3.5 py-1.5 bg-slate-950 rounded-xl border border-slate-800 flex items-center space-x-2 text-xs text-slate-400 font-mono shadow-inner">
-              <Clock className="h-3.5 w-3.5 text-cyan-400" />
-              <span>{systemTime || "Sincronizando..."}</span>
+            {/* System Date Clock and helper */}
+            <div className="flex items-center space-x-4">
+              <div className="px-4 py-2 bg-black/[0.3] rounded-full border border-white/[0.05] flex items-center space-x-2 text-xs text-slate-400 font-mono shadow-inner backdrop-blur-md">
+                <Clock className="h-3.5 w-3.5 text-slate-500" />
+                <span>{systemTime || "Sincronizando..."}</span>
+              </div>
             </div>
-          </div>
-        </header>
+          </header>
 
-        {/* Workspace core */}
-        <section className="flex-1 p-6 lg:p-8 overflow-y-auto">
-          {renderSelectedModule()}
-        </section>
-
+          {/* Workspace core */}
+          <section className="flex-1 p-6 lg:p-8 overflow-y-auto relative z-0">
+            {renderSelectedModule()}
+          </section>
+        </div>
       </main>
     </div>
   );
