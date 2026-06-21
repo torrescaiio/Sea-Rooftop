@@ -155,7 +155,7 @@ export default function AuthScreen({ onAuthSuccess }: AuthScreenProps) {
                   <button 
                     type="button" 
                     onClick={handleResetPassword}
-                    className="text-[10px] text-cyan-400 hover:text-cyan-300 underline font-mono cursor-pointer"
+                    className="text-[10px] text-cyan-400 hover:text-cyan-300 underline font-mono cursor-pointer min-h-[44px]"
                   >
                     Esqueci minha senha
                   </button>
@@ -178,7 +178,7 @@ export default function AuthScreen({ onAuthSuccess }: AuthScreenProps) {
             <button
               type="submit"
               disabled={loading}
-              className="w-full bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-600 hover:to-blue-700 text-white font-semibold text-sm py-2.5 rounded-xl shadow-lg hover:shadow-cyan-500/15 transition-all outline-hidden flex justify-center items-center gap-2 cursor-pointer disabled:opacity-50"
+              className="w-full bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-600 hover:to-blue-700 text-white font-semibold text-sm py-2.5 rounded-xl shadow-lg hover:shadow-cyan-500/15 transition-all outline-hidden flex justify-center items-center gap-2 cursor-pointer disabled:opacity-50 min-h-[44px]"
             >
               {loading ? (
                 <div className="h-5 w-5 border-t-2 border-r-2 border-white rounded-full animate-spin" />

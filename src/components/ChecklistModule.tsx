@@ -424,7 +424,7 @@ export default function ChecklistModule() {
                   placeholder="Nome da categoria..."
                   className="flex-1 bg-slate-950 border border-slate-850 rounded-lg px-3 py-2 text-slate-200 text-sm focus:border-cyan-500 focus:outline-none"
                 />
-                <button type="submit" className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-white font-medium rounded-lg transition border border-slate-700">Adicionar</button>
+                <button type="submit" className="px-4 py-2.5 bg-slate-800 hover:bg-slate-700 text-white font-medium rounded-lg transition border border-slate-700 min-h-[44px]">Adicionar</button>
               </form>
 
               <div className="mt-6 space-y-2">
@@ -449,7 +449,7 @@ export default function ChecklistModule() {
       {/* Overlay Slide-over Modal for Adding Checklist items */}
       {showModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
-          <div className="w-full max-w-md bg-slate-900 border border-slate-800 rounded-2xl shadow-xl overflow-hidden animate-in zoom-in-95 duration-150">
+          <div className="w-full max-w-md bg-slate-900 border border-slate-800 rounded-2xl shadow-xl overflow-y-auto max-h-[90vh] animate-in zoom-in-95 duration-150">
             <div className="flex items-center justify-between p-5 border-b border-slate-800">
               <h3 className="text-lg font-bold text-white">Nova Tarefa Operacional</h3>
               <button 
@@ -518,7 +518,7 @@ export default function ChecklistModule() {
                 </button>
                 <button
                   type="submit"
-                  className="px-5 py-2 bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-600 hover:to-blue-700 text-white rounded-lg text-sm font-medium shadow-md transition cursor-pointer"
+                  className="px-5 py-2.5 bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-600 hover:to-blue-700 text-white rounded-lg text-sm font-medium shadow-md transition cursor-pointer min-h-[44px]"
                 >
                   Adicionar Tarefa
                 </button>

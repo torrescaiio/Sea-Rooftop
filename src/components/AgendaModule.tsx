@@ -235,7 +235,7 @@ export default function AgendaModule() {
       {/* DETAIL MODAL DRAWER OVERLAY */}
       {activeDetailEvent && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
-          <div className="w-full max-w-lg bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl overflow-hidden animate-in zoom-in-95 duration-150">
+          <div className="w-full max-w-lg bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl overflow-y-auto max-h-[90vh] animate-in zoom-in-95 duration-150">
             
             {/* Header info */}
             <div className="p-6 bg-slate-950/65 border-b border-slate-800 flex items-center justify-between">
@@ -345,7 +345,7 @@ export default function AgendaModule() {
       {/* ADD AGENDA ITEM MODAL */}
       {showAddModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
-          <div className="w-full max-w-lg bg-slate-900 border border-slate-800 rounded-2xl shadow-xl overflow-hidden animate-in zoom-in-95 duration-150">
+          <div className="w-full max-w-lg bg-slate-900 border border-slate-800 rounded-2xl shadow-xl overflow-y-auto max-h-[90vh] animate-in zoom-in-95 duration-150">
             <div className="flex items-center justify-between p-5 border-b border-slate-800">
               <h3 className="text-lg font-bold text-white">Escalar Atração na Agenda</h3>
               <button 
@@ -502,7 +502,7 @@ export default function AgendaModule() {
                 </button>
                 <button
                   type="submit"
-                  className="px-5 py-2 bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-600 hover:to-blue-700 text-white rounded-lg text-sm font-medium shadow-md transition cursor-pointer"
+                  className="px-5 py-2.5 bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-600 hover:to-blue-700 text-white rounded-lg text-sm font-medium shadow-md transition cursor-pointer min-h-[44px]"
                 >
                   Escalar Show
                 </button>

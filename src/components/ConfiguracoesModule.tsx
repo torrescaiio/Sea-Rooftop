@@ -110,7 +110,7 @@ export default function ConfiguracoesModule() {
               <button
                 type="submit"
                 disabled={createLoad}
-                className="w-full py-2.5 bg-slate-800 hover:bg-slate-700 text-emerald-400 font-medium rounded-lg transition border border-slate-700 hover:border-slate-600 disabled:opacity-50 flex justify-center items-center gap-2 cursor-pointer"
+                className="w-full py-2.5 bg-slate-800 hover:bg-slate-700 text-emerald-400 font-medium rounded-lg transition border border-slate-700 hover:border-slate-600 disabled:opacity-50 flex justify-center items-center gap-2 cursor-pointer min-h-[44px]"
               >
                 {createLoad ? "Processando..." : "Criar Conta"}
               </button>
@@ -175,7 +175,7 @@ export default function ConfiguracoesModule() {
               <button
                 type="submit"
                 disabled={changePassLoad}
-                className="w-full py-2.5 bg-slate-800 hover:bg-slate-700 text-cyan-400 font-medium rounded-lg transition border border-slate-700 hover:border-slate-600 disabled:opacity-50 flex justify-center items-center gap-2 cursor-pointer"
+                className="w-full py-2.5 bg-slate-800 hover:bg-slate-700 text-cyan-400 font-medium rounded-lg transition border border-slate-700 hover:border-slate-600 disabled:opacity-50 flex justify-center items-center gap-2 cursor-pointer min-h-[44px]"
               >
                 {changePassLoad ? "Processando..." : <><Save className="w-4 h-4"/> Atualizar Senha</>}
               </button>

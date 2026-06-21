@@ -295,7 +295,7 @@ export default function OcorrenciasModule() {
       {/* Report Modal */}
       {showModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
-          <div className="w-full max-w-lg bg-slate-900 border border-slate-800 rounded-2xl shadow-xl overflow-hidden animate-in zoom-in-95 duration-150">
+          <div className="w-full max-w-lg bg-slate-900 border border-slate-800 rounded-2xl shadow-xl overflow-y-auto max-h-[90vh] animate-in zoom-in-95 duration-150">
             <div className="flex items-center justify-between p-5 border-b border-slate-800">
               <h3 className="text-lg font-bold text-white">Lançar Registro de Ocorrência</h3>
               <button 
@@ -393,7 +393,7 @@ export default function OcorrenciasModule() {
                 </button>
                 <button
                   type="submit"
-                  className="px-5 py-2 bg-gradient-to-r from-rose-600 to-rose-700 hover:bg-rose-700 text-white rounded-lg text-sm font-medium shadow-md transition cursor-pointer"
+                  className="px-5 py-2.5 bg-gradient-to-r from-rose-600 to-rose-700 hover:bg-rose-700 text-white rounded-lg text-sm font-medium shadow-md transition cursor-pointer min-h-[44px]"
                 >
                   Salvar Registro
                 </button>

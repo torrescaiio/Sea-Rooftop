@@ -146,7 +146,7 @@ export default function EquipeModule() {
         </div>
         <button
           onClick={handleOpenAdd}
-          className="inline-flex items-center gap-2 bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-600 hover:to-blue-700 text-white font-medium text-sm px-4 py-2.5 rounded-lg shadow-lg hover:shadow-cyan-500/10 transition-all cursor-pointer"
+          className="inline-flex items-center gap-2 bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-600 hover:to-blue-700 text-white font-medium text-sm px-4 py-2.5 rounded-lg shadow-lg hover:shadow-cyan-500/10 transition-all cursor-pointer min-h-[44px]"
         >
           <UserPlus className="h-4 w-4" />
           Adicionar Colaborador
@@ -295,7 +295,7 @@ export default function EquipeModule() {
       {/* Slide-over Form Overlay Modal */}
       {showModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
-          <div className="w-full max-w-lg bg-slate-900 border border-slate-800 rounded-2xl shadow-xl overflow-hidden animate-in zoom-in-95 duration-150">
+          <div className="w-full max-w-lg bg-slate-900 border border-slate-800 rounded-2xl shadow-xl overflow-y-auto max-h-[90vh] animate-in zoom-in-95 duration-150">
             <div className="flex items-center justify-between p-5 border-b border-slate-800">
               <h3 className="text-lg font-bold text-white">
                 {editingId ? "Editar Colaborador" : "Registrar Novo Staff"}
@@ -402,7 +402,7 @@ export default function EquipeModule() {
                 </button>
                 <button
                   type="submit"
-                  className="px-5 py-2 bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-600 hover:to-blue-700 text-white rounded-lg text-sm font-medium shadow-md shadow-cyan-500/5 transition cursor-pointer"
+                  className="px-5 py-2.5 bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-600 hover:to-blue-700 text-white rounded-lg text-sm font-medium shadow-md shadow-cyan-500/5 transition cursor-pointer min-h-[44px]"
                 >
                   Salvar Mudanças
                 </button>

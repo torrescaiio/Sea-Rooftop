@@ -20,6 +20,26 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
+@layer base {
+  /* WCAG Mobile Touch Target Size (44px min for interactive elements) */
+  button, 
+  input:not([type="checkbox"]):not([type="radio"]), 
+  select, 
+  textarea, 
+  [role="button"] {
+    min-height: 44px;
+  }
+
+  /* Make sure icon-only buttons expand proportionally to standard touch size */
+  button:has(> svg:only-child) {
+    min-width: 44px;
+    min-height: 44px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+}
+
 /* Custom gorgeous scrollbar for the elegant theme */
 ::-webkit-scrollbar {
   width: 6px;

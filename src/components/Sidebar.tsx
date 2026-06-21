@@ -117,7 +117,7 @@ export default function Sidebar({ activeModule, setActiveModule, user, onSignOut
           <button
             onClick={onSignOut}
             title="Sair do painel"
-            className="p-1.5 text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 rounded-lg transition-colors ml-1.5"
+            className="p-1.5 text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 rounded-lg transition-colors ml-1.5 min-h-[44px]"
           >
             <LogOut className="h-4 w-4" />
           </button>

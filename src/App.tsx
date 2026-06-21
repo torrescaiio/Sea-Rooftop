@@ -96,7 +96,7 @@ export default function App() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col lg:flex-row font-sans">
+    <div className="h-screen overflow-hidden bg-slate-950 text-slate-100 flex flex-col lg:flex-row font-sans">
       
       {/* 1. SIDEBAR NAVIGATION */}
       <Sidebar 
@@ -107,7 +107,7 @@ export default function App() {
       />
 
       {/* 2. DYNAMIC WORKSPACE LAYER */}
-      <main className="flex-1 flex flex-col min-w-0 h-screen overflow-y-auto">
+      <main className="flex-1 flex flex-col min-w-0 overflow-y-auto">
         
         {/* Top Header Panel */}
         <header className="px-6 py-4 bg-slate-900 border-b border-slate-850 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 shrink-0">

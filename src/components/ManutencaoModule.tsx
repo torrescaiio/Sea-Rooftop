@@ -351,7 +351,7 @@ export default function ManutencaoModule() {
       {/* Modal Sub-Module 5.1 Repair ADD */}
       {showRepairModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
-          <div className="w-full max-w-md bg-slate-900 border border-slate-800 rounded-2xl shadow-xl overflow-hidden animate-in zoom-in-95 duration-150">
+          <div className="w-full max-w-md bg-slate-900 border border-slate-800 rounded-2xl shadow-xl overflow-y-auto max-h-[90vh] animate-in zoom-in-95 duration-150">
             <div className="flex items-center justify-between p-5 border-b border-slate-800">
               <h3 className="text-lg font-bold text-white">Novo Reparo Estrutural</h3>
               <button 
@@ -433,7 +433,7 @@ export default function ManutencaoModule() {
                 </button>
                 <button
                   type="submit"
-                  className="px-5 py-2 bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-600 hover:to-blue-700 text-white rounded-lg text-sm font-medium shadow-md transition cursor-pointer"
+                  className="px-5 py-2.5 bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-600 hover:to-blue-700 text-white rounded-lg text-sm font-medium shadow-md transition cursor-pointer min-h-[44px]"
                 >
                   Gravar Conserte
                 </button>
@@ -446,7 +446,7 @@ export default function ManutencaoModule() {
       {/* Modal Sub-Module 5.2 Purchase ADD */}
       {showPurchaseModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
-          <div className="w-full max-w-md bg-slate-900 border border-slate-800 rounded-2xl shadow-xl overflow-hidden animate-in zoom-in-95 duration-150">
+          <div className="w-full max-w-md bg-slate-900 border border-slate-800 rounded-2xl shadow-xl overflow-y-auto max-h-[90vh] animate-in zoom-in-95 duration-150">
             <div className="flex items-center justify-between p-5 border-b border-slate-800">
               <h3 className="text-lg font-bold text-white">Nova Compra de Instalação / Ins</h3>
               <button 
@@ -527,7 +527,7 @@ export default function ManutencaoModule() {
                 </button>
                 <button
                   type="submit"
-                  className="px-5 py-2 bg-gradient-to-r from-emerald-500 to-emerald-600 hover:bg-emerald-600 text-white rounded-lg text-sm font-medium shadow-md transition cursor-pointer"
+                  className="px-5 py-2.5 bg-gradient-to-r from-emerald-500 to-emerald-600 hover:bg-emerald-600 text-white rounded-lg text-sm font-medium shadow-md transition cursor-pointer min-h-[44px]"
                 >
                   Registrar Orçamento
                 </button>
