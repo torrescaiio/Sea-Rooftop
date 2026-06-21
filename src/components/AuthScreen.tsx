@@ -9,7 +9,6 @@ interface AuthScreenProps {
 export default function AuthScreen({ onAuthSuccess }: AuthScreenProps) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [isSignUp, setIsSignUp] = useState(false);
   
   const [loading, setLoading] = useState(false);
   const [errorStatus, setErrorStatus] = useState<string | null>(null);
@@ -47,19 +46,11 @@ export default function AuthScreen({ onAuthSuccess }: AuthScreenProps) {
     setSuccessMsg(null);
 
     try {
-      if (isSignUp) {
-        const user = await appAuth.signUp(email.trim(), password);
-        setSuccessMsg("Conta de administrador criada com sucesso! Carregando...");
-        setTimeout(() => {
-          onAuthSuccess(user);
-        }, 800);
-      } else {
-        const user = await appAuth.signIn(email.trim(), password);
-        setSuccessMsg("Autenticado! Carregando Command Center...");
-        setTimeout(() => {
-          onAuthSuccess(user);
-        }, 800);
-      }
+      const user = await appAuth.signIn(email.trim(), password);
+      setSuccessMsg("Autenticado! Carregando Command Center...");
+      setTimeout(() => {
+        onAuthSuccess(user);
+      }, 800);
     } catch (err: any) {
       setErrorStatus(err.message || "Erro desconhecido na autenticação.");
     } finally {
@@ -182,27 +173,11 @@ export default function AuthScreen({ onAuthSuccess }: AuthScreenProps) {
             >
               {loading ? (
                 <div className="h-5 w-5 border-t-2 border-r-2 border-white rounded-full animate-spin" />
-              ) : isSignUp ? (
-                "Criar Conta e Conectar"
               ) : (
                 "Conectar ao Painel"
               )}
             </button>
           </form>
-
-          {/* Toggle between register and login */}
-          <div className="text-center mt-6">
-            <button
-              type="button"
-              onClick={() => setIsSignUp(!isSignUp)}
-              className="text-xs text-slate-400 hover:text-white underline transition cursor-pointer"
-            >
-              {isSignUp 
-                ? "Já possuo uma credencial corporativa. Entrar" 
-                : "Solicitar novo acesso operacional (Cadastrar)"
-              }
-            </button>
-          </div>
         </div>
       </div>
 

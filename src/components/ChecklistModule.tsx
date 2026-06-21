@@ -13,8 +13,11 @@ import {
   PlusCircle,
   Tag,
   Kanban,
-  ListTodo
+  ListTodo,
+  FileDown
 } from "lucide-react";
+import jsPDF from "jspdf";
+import autoTable from "jspdf-autotable";
 
 export default function ChecklistModule() {
   const [tasks, setTasks] = useState<ChecklistItem[]>([]);
@@ -143,6 +146,31 @@ export default function ChecklistModule() {
   const tasksInProgress = filteredTasks.filter(t => t.status === "Em Andamento");
   const tasksCompleted = filteredTasks.filter(t => t.status === "Concluído");
 
+  const handleExportPDF = () => {
+    const doc = new jsPDF();
+    doc.text("Relatório de Checklist", 14, 15);
+    
+    const tableColumn = ["Tarefa", "Categoria", "Status"];
+    const tableRows: any[] = [];
+    
+    filteredTasks.forEach(task => {
+      const taskData = [
+        task.tarefa,
+        task.categoria,
+        task.status
+      ];
+      tableRows.push(taskData);
+    });
+
+    autoTable(doc, {
+      head: [tableColumn],
+      body: tableRows,
+      startY: 20,
+    });
+    
+    doc.save("checklist-export.pdf");
+  };
+
   return (
     <div className="space-y-6">
       {/* Module Header */}
@@ -156,13 +184,22 @@ export default function ChecklistModule() {
             Acompanhe tarefas operacionais de salão, bar, cozinha e recepção para manter o alto nível do Rooftop.
           </p>
         </div>
-        <button
-          onClick={() => setShowModal(true)}
-          className="inline-flex items-center gap-2 bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-600 hover:to-blue-700 text-white font-medium text-sm px-4 py-2.5 rounded-lg shadow-lg hover:shadow-cyan-500/10 transition-all cursor-pointer"
-        >
-          <PlusCircle className="h-4 w-4" />
-          Nova Tarefa
-        </button>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={handleExportPDF}
+            className="inline-flex items-center gap-2 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 hover:border-slate-600 font-medium text-sm px-4 py-2.5 rounded-lg shadow-sm transition-all cursor-pointer"
+          >
+            <FileDown className="h-4 w-4" />
+            Exportar PDF
+          </button>
+          <button
+            onClick={() => setShowModal(true)}
+            className="inline-flex items-center gap-2 bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-600 hover:to-blue-700 text-white font-medium text-sm px-4 py-2.5 rounded-lg shadow-lg hover:shadow-cyan-500/10 transition-all cursor-pointer"
+          >
+            <PlusCircle className="h-4 w-4" />
+            Nova Tarefa
+          </button>
+        </div>
       </div>
 
       {/* Toolbar / Filters */}

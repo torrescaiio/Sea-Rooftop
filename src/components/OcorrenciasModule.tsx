@@ -15,8 +15,11 @@ import {
   Clock,
   Search,
   CheckCircle2,
-  AlertCircle
+  AlertCircle,
+  FileDown
 } from "lucide-react";
+import jsPDF from "jspdf";
+import autoTable from "jspdf-autotable";
 
 export default function OcorrenciasModule() {
   const [ocorrencias, setOcorrencias] = useState<Occurrence[]>([]);
@@ -119,6 +122,33 @@ export default function OcorrenciasModule() {
     return matchesSearch && matchesCategory && matchesStatus;
   });
 
+  const handleExportPDF = () => {
+    const doc = new jsPDF();
+    doc.text("Relatório de Ocorrências", 14, 15);
+    
+    const tableColumn = ["Data", "Categoria", "Descrição", "Responsável", "Status"];
+    const tableRows: any[] = [];
+    
+    filteredLogs.forEach(log => {
+      const rowData = [
+        log.data,
+        log.categoria,
+        log.descricaoDetalhada,
+        log.responsavelResolucao,
+        log.status
+      ];
+      tableRows.push(rowData);
+    });
+
+    autoTable(doc, {
+      head: [tableColumn],
+      body: tableRows,
+      startY: 20,
+    });
+    
+    doc.save("ocorrencias-export.pdf");
+  };
+
   return (
     <div className="space-y-6 font-sans">
       {/* Title */}
@@ -132,13 +162,22 @@ export default function OcorrenciasModule() {
             Documente desvios de processo, faltas, panes de TI ou reparos imediatos no rooftop.
           </p>
         </div>
-        <button
-          onClick={() => setShowModal(true)}
-          className="inline-flex items-center gap-2 bg-rose-600 hover:bg-rose-700 text-white font-medium text-sm px-4 py-2.5 rounded-lg shadow-lg hover:shadow-rose-600/10 transition cursor-pointer"
-        >
-          <PlusCircle className="h-4 w-4" />
-          Registrar Ocorrência
-        </button>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={handleExportPDF}
+            className="inline-flex items-center gap-2 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 hover:border-slate-600 font-medium text-sm px-4 py-2.5 rounded-lg shadow-sm transition-all cursor-pointer"
+          >
+            <FileDown className="h-4 w-4" />
+            Exportar PDF
+          </button>
+          <button
+            onClick={() => setShowModal(true)}
+            className="inline-flex items-center gap-2 bg-rose-600 hover:bg-rose-700 text-white font-medium text-sm px-4 py-2.5 rounded-lg shadow-lg hover:shadow-rose-600/10 transition cursor-pointer"
+          >
+            <PlusCircle className="h-4 w-4" />
+            Registrar Ocorrência
+          </button>
+        </div>
       </div>
 
       {/* Toolbar */}

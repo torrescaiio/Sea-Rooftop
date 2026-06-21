@@ -13,8 +13,11 @@ import {
   PlusCircle,
   Hammer,
   Truck,
-  Check
+  Check,
+  FileDown
 } from "lucide-react";
+import jsPDF from "jspdf";
+import autoTable from "jspdf-autotable";
 
 export default function ManutencaoModule() {
   // Sub-module 5.1 (Repairs)
@@ -171,6 +174,49 @@ export default function ManutencaoModule() {
     }
   };
 
+  const handleExportPDF = () => {
+    const doc = new jsPDF();
+    doc.text("Relatório de Manutenção e Reparos", 14, 15);
+    
+    // Reparos Table
+    doc.text("Reparos", 14, 25);
+    const repTableColumn = ["Item", "Local", "Prioridade", "Status"];
+    const repTableRows: any[] = [];
+    repairs.forEach(rep => {
+      repTableRows.push([rep.item, rep.local, rep.prioridade, rep.status]);
+    });
+    
+    let currentY = 30;
+    autoTable(doc, {
+      head: [repTableColumn],
+      body: repTableRows,
+      startY: currentY,
+      didDrawPage: (data) => { currentY = data.cursor?.y || currentY; }
+    });
+
+    // Compras Table
+    currentY += 15;
+    if (currentY > doc.internal.pageSize.getHeight() - 20) {
+      doc.addPage();
+      currentY = 20;
+    }
+    
+    doc.text("Pedidos de Compra", 14, currentY);
+    const purTableColumn = ["Item", "Fornecedor", "Valor Estimado", "Status"];
+    const purTableRows: any[] = [];
+    purchases.forEach(pur => {
+      purTableRows.push([pur.item, pur.fornecedor, `R$ ${pur.valorEstimado.toFixed(2)}`, pur.status]);
+    });
+
+    autoTable(doc, {
+      head: [purTableColumn],
+      body: purTableRows,
+      startY: currentY + 5,
+    });
+    
+    doc.save("manutencao-export.pdf");
+  };
+
   return (
     <div className="space-y-6 font-sans">
       {/* Module Title Section */}
@@ -183,6 +229,15 @@ export default function ManutencaoModule() {
           <p className="text-sm text-slate-400">
             Controle de forma ágil pequenas reformas estruturais secundárias e compras físicas de facilities.
           </p>
+        </div>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={handleExportPDF}
+            className="inline-flex items-center gap-2 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 hover:border-slate-600 font-medium text-sm px-4 py-2.5 rounded-lg shadow-sm transition-all cursor-pointer"
+          >
+            <FileDown className="h-4 w-4" />
+            Exportar PDF
+          </button>
         </div>
       </div>
 

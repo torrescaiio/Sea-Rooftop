@@ -14,8 +14,11 @@ import {
   Check, 
   X,
   SlidersHorizontal,
-  Info
+  Info,
+  FileDown
 } from "lucide-react";
+import jsPDF from "jspdf";
+import autoTable from "jspdf-autotable";
 
 export default function AgendaModule() {
   const [events, setEvents] = useState<AgendaEvent[]>([]);
@@ -126,6 +129,33 @@ export default function AgendaModule() {
   // Group events by date (sorted)
   const sortedEvents = [...events].sort((a, b) => new Date(a.data).getTime() - new Date(b.data).getTime());
 
+  const handleExportPDF = () => {
+    const doc = new jsPDF();
+    doc.text("Relatório da Agenda de Eventos", 14, 15);
+    
+    const tableColumn = ["Data", "Atração", "Tipo", "Cachê", "Status"];
+    const tableRows: any[] = [];
+    
+    sortedEvents.forEach(evt => {
+      const rowData = [
+        evt.data,
+        evt.nomeAtracao,
+        evt.tipoEvento,
+        `R$ ${evt.cacheCombinado.toFixed(2)}`,
+        evt.status
+      ];
+      tableRows.push(rowData);
+    });
+
+    autoTable(doc, {
+      head: [tableColumn],
+      body: tableRows,
+      startY: 20,
+    });
+    
+    doc.save("agenda-export.pdf");
+  };
+
   return (
     <div className="space-y-6 font-sans">
       {/* Title */}
@@ -139,13 +169,22 @@ export default function AgendaModule() {
             Escalar atrações, controlar cachês e gerenciar necessidades técnicas de som e luz integradas.
           </p>
         </div>
-        <button
-          onClick={() => setShowAddModal(true)}
-          className="inline-flex items-center gap-2 bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-600 hover:to-blue-700 text-white font-medium text-sm px-4 py-2.5 rounded-lg shadow-lg hover:shadow-cyan-500/10 transition cursor-pointer"
-        >
-          <PlusCircle className="h-4 w-4" />
-          Agendar Atração
-        </button>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={handleExportPDF}
+            className="inline-flex items-center gap-2 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 hover:border-slate-600 font-medium text-sm px-4 py-2.5 rounded-lg shadow-sm transition-all cursor-pointer"
+          >
+            <FileDown className="h-4 w-4" />
+            Exportar PDF
+          </button>
+          <button
+            onClick={() => setShowAddModal(true)}
+            className="inline-flex items-center gap-2 bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-600 hover:to-blue-700 text-white font-medium text-sm px-4 py-2.5 rounded-lg shadow-lg hover:shadow-cyan-500/10 transition cursor-pointer"
+          >
+            <PlusCircle className="h-4 w-4" />
+            Agendar Atração
+          </button>
+        </div>
       </div>
 
       {errAgenda && (
