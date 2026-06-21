@@ -1,0 +1,99 @@
+{
+  "$users": {
+    "auth": [
+      {
+        "uid": "admin-1",
+        "email": "gerente@searooftop.com.br",
+        "password": "123456"
+      }
+    ]
+  },
+  "equipe": [
+    {
+      "__docId__": "e1",
+      "nome": "Carlos Oliveira",
+      "cargo": "Garçom Sênior",
+      "pontuacao": 9,
+      "situacaoAtual": "Excelente pontualidade e destaque em feedback positivo.",
+      "status": "Ativo",
+      "createdAt": "2026-06-20T22:33:00Z"
+    }
+  ],
+  "reservas": [
+    {
+      "__docId__": "r1",
+      "nomeCliente": "Bruno Mezenga (Mesa VIP 1)",
+      "data": "2026-06-20",
+      "horario": "20:00",
+      "quantidadePessoas": 4,
+      "mesaDesignada": "Mesa 12",
+      "status": "Confirmada",
+      "createdAt": "2026-06-20T22:33:00Z"
+    }
+  ],
+  "checklist_gerencial": [
+    {
+      "__docId__": "c1",
+      "tarefa": "Ajustar transferência de mesas",
+      "categoria": "Processo de Reservas",
+      "status": "Em Andamento",
+      "createdAt": "2026-06-20T22:33:00Z"
+    }
+  ],
+  "ocorrencias": [
+    {
+      "__docId__": "o1",
+      "data": "2026-06-20",
+      "categoria": "Sistema",
+      "descricaoDetalhada": "Queda temporária de Wi-Fi",
+      "responsavelResolucao": "Suporte Técnico",
+      "status": "Resolvido",
+      "createdAt": "2026-06-20T22:33:00Z"
+    }
+  ],
+  "manutencao_reparos": [
+    {
+      "__docId__": "mr1",
+      "item": "Consertar goteira",
+      "local": "Toldo",
+      "prioridade": "Urgente",
+      "status": "Em Andamento",
+      "createdAt": "2026-06-20T22:33:00Z"
+    }
+  ],
+  "manutencao_compras": [
+    {
+      "__docId__": "mc1",
+      "item": "Termômetro",
+      "fornecedor": "Refrimax",
+      "valorEstimado": 280,
+      "status": "Aprovado",
+      "createdAt": "2026-06-20T22:33:00Z"
+    }
+  ],
+  "compras_gerais": [
+    {
+      "__docId__": "cg1",
+      "item": "Fôrmas de gelo",
+      "categoria": "Bar",
+      "quantidade": 12,
+      "status": "Solicitado",
+      "createdAt": "2026-06-20T22:33:00Z"
+    }
+  ],
+  "agenda_eventos": [
+    {
+      "__docId__": "ae1",
+      "data": "2026-06-20",
+      "tipoEvento": "Música ao Vivo",
+      "artistaNome": "Rodízio de Cantores",
+      "horarioPassagemSom": "17:30",
+      "horarioInicio": "19:30",
+      "horarioTermino": "23:00",
+      "cacheCusto": 600,
+      "necessidadesTecnicas": "2 microfones",
+      "status": "Confirmado",
+      "createdAt": "2026-06-20T22:33:00Z"
+    }
+  ]
+}
