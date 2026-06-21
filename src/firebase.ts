@@ -155,7 +155,8 @@ const initSimulatedStorage = () => {
   
   // Simulated authentication initialization
   if (!localStorage.getItem("sea_rooftop_auth_user")) {
-    localStorage.setItem("sea_rooftop_auth_user", JSON.stringify({ email: "gerente@searooftop.com.br", role: "admin", name: "Gerente Geral" }));
+    // Start without an active session
+    // localStorage.setItem("sea_rooftop_auth_user", JSON.stringify({ email: "seu.email@searooftop.com.br", role: "admin", name: "Operacional" }));
   }
 };
 
@@ -183,19 +184,21 @@ export const appAuth = {
       const userStr = localStorage.getItem("sea_rooftop_auth_user");
       if (userStr) {
         const user = JSON.parse(userStr);
-        if (email.toLowerCase() === "gerente@searooftop.com.br" && pass === "123456") {
-          return { email: user.email, displayName: user.name, uid: "simulated-uid-123" };
-        } else if (email.toLowerCase() === "admin@searooftop.com.br" && pass === "123456") {
-          return { email: email, displayName: "Diretoria de Operações", uid: "simulated-uid-999" };
+        if (email.toLowerCase() === user.email) {
+            return { email: user.email, displayName: user.name, uid: "simulated-uid-123" };
         } else {
           // Allow custom credentials with 123456 for easy developer interaction
           if (email && pass.length >= 6) {
             return { email: email, displayName: email.split('@')[0], uid: "simulated-uid-" + Math.random() };
           }
-          throw new Error("A senha deve ter pelo menos 6 caracteres rasteiros se for cadastro ou errada.");
+          throw new Error("Credenciais inválidas no ambiente simulado.");
+        }
+      } else {
+        if (email && pass.length >= 6) {
+           return { email: email, displayName: email.split('@')[0], uid: "simulated-uid-" + Math.random() };
         }
       }
-      throw new Error("Usuário ou senha inválidos. Utilize gerente@searooftop.com.br / 123456.");
+      throw new Error("Usuário ou senha inválidos.");
     }
   },
 
@@ -224,7 +227,7 @@ export const appAuth = {
       await firebaseSignOut(auth);
     } else {
       await sleep(200);
-      // Clean temporary active sessions if any
+      localStorage.removeItem("sea_rooftop_auth_user");
     }
   },
 
@@ -235,9 +238,12 @@ export const appAuth = {
       });
     } else {
       // Simulated state listener
-      const simulateUser = { email: "gerente@searooftop.com.br", displayName: "Gerente Geral", uid: "simulated-uid-123" };
-      // By default initial launch will be logged in for seamless preview
-      callback(simulateUser);
+      const userStr = localStorage.getItem("sea_rooftop_auth_user");
+      if (userStr) {
+         callback(JSON.parse(userStr));
+      } else {
+         callback(null);
+      }
       return () => {};
     }
   },

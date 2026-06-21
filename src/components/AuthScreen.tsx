@@ -139,7 +139,7 @@ export default function AuthScreen({ onAuthSuccess }: AuthScreenProps) {
                   required
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  placeholder="gerente@searooftop.com.br"
+                  placeholder="seu.email@searooftop.com.br"
                   className="w-full bg-slate-950 border border-slate-800 rounded-xl py-2.5 pl-10 pr-4 text-slate-200 text-sm focus:border-cyan-500 focus:outline-none transition"
                 />
               </div>
@@ -204,22 +204,6 @@ export default function AuthScreen({ onAuthSuccess }: AuthScreenProps) {
             </button>
           </div>
         </div>
-
-        {/* Demo Credentials Drawer helper if Firebase is offline */}
-        {!firebaseActive && (
-          <div className="bg-slate-950 p-5 border-t border-slate-800/80 space-y-2.5">
-            <span className="text-[9px] font-mono text-cyan-400 uppercase tracking-widest flex items-center gap-1 font-bold">
-              <Sparkles className="h-3 w-3" /> CREDENCIAIS DE TESTE (DEMO PREVIEW)
-            </span>
-            <div className="text-xs text-slate-400 space-y-1 leading-relaxed">
-              <p>O aplicativo está operando em <b>Modo Simulado Local</b> para visualização instantânea.</p>
-              <div className="p-2.5 bg-slate-900 border border-slate-800 rounded-lg text-[11px] space-y-0.5 font-mono mt-2 select-all">
-                <div><span className="text-slate-500">Login:</span> gerente@searooftop.com.br</div>
-                <div><span className="text-slate-500">Senha:</span> 123456</div>
-              </div>
-            </div>
-          </div>
-        )}
       </div>
 
       <div className="mt-6 text-center text-slate-600 text-[10px] font-mono">
