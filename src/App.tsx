@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
 import Sidebar from "./components/Sidebar";
 import AuthScreen from "./components/AuthScreen";
+import DashboardModule from "./components/DashboardModule";
 import EquipeModule from "./components/EquipeModule";
 import ChecklistModule from "./components/ChecklistModule";
 import OcorrenciasModule from "./components/OcorrenciasModule";
@@ -13,7 +14,7 @@ import { Clock, HelpCircle, LogOut, Sun } from "lucide-react";
 
 export default function App() {
   const [activeUser, setActiveUser] = useState<any>(null);
-  const [activeModule, setActiveModule] = useState<string>("equipe");
+  const [activeModule, setActiveModule] = useState<string>("dashboard");
   const [checkingAuth, setCheckingAuth] = useState(true);
 
   // Live clock system
@@ -76,6 +77,8 @@ export default function App() {
   // Roteador dinâmico de módulos operacionais
   const renderSelectedModule = () => {
     switch (activeModule) {
+      case "dashboard":
+        return <DashboardModule />;
       case "equipe":
         return <EquipeModule />;
       case "checklist":
@@ -91,7 +94,7 @@ export default function App() {
       case "configuracoes":
         return <ConfiguracoesModule />;
       default:
-        return <EquipeModule />;
+        return <DashboardModule />;
     }
   };
 

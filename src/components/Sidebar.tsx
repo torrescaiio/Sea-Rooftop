@@ -29,6 +29,7 @@ export default function Sidebar({ activeModule, setActiveModule, user, onSignOut
   const firebaseConnected = isFirebaseActive();
 
   const menuItems = [
+    { id: "dashboard", name: "Visão Geral", icon: LayoutDashboard },
     { id: "equipe", name: "Equipe Operacional", icon: Users },
     { id: "checklist", name: "Checklist Gerencial", icon: CheckSquare },
     { id: "ocorrencias", name: "Ocorrências no Salão", icon: AlertTriangle },
