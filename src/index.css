@@ -18,6 +18,7 @@ body {
   color: #cbd5e1; /* slate-300 */
   font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
+  overscroll-behavior-y: none; /* Prevent iOS bounce/pull-to-refresh */
 }
 
 @layer base {
@@ -37,6 +38,13 @@ body {
     display: inline-flex;
     align-items: center;
     justify-content: center;
+  }
+
+  /* Prevent iOS Safari from zooming when focusing inputs */
+  @supports (-webkit-touch-callout: none) {
+    input, select, textarea {
+      font-size: 16px !important;
+    }
   }
 }
 
