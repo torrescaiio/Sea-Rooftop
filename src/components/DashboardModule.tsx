@@ -285,9 +285,9 @@ export default function DashboardModule() {
             <TrendingUp className="h-4 w-4 text-rose-500" />
             Ocorrências por Colaborador
           </h3>
-          <div className="h-[300px] w-full">
+          <div className="h-[300px] w-full" style={{ minWidth: 0, minHeight: 0 }}>
             {occurrencesChartData.length > 0 ? (
-              <ResponsiveContainer width="100%" height="100%">
+              <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
                 <BarChart data={occurrencesChartData} margin={{ top: 5, right: 10, left: -20, bottom: 5 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#ffffff15" vertical={false} />
                   <XAxis dataKey="name" stroke="#52525b" fontSize={11} tickLine={false} axisLine={false} />
