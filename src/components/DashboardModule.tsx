@@ -278,7 +278,7 @@ export default function DashboardModule() {
       </div>
 
       {/* CHARTS SECTION */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-8">
+      <div className="grid grid-cols-1 gap-6 mt-8">
         {/* Gráfico Ocorrências por Colaborador */}
         <div className="bg-[#0A0A0A] border border-white/10 rounded-2xl p-6 min-w-0 overflow-hidden">
           <h3 className="text-sm font-bold text-white tracking-widest uppercase mb-6 flex items-center gap-2">
@@ -303,40 +303,6 @@ export default function DashboardModule() {
             ) : (
               <div className="h-full flex items-center justify-center text-slate-500 text-xs font-mono uppercase tracking-widest">
                 Sem dados para exibir
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* Gráfico Consumo Financeiro */}
-        <div className="bg-[#0A0A0A] border border-white/10 rounded-2xl p-6 min-w-0 overflow-hidden">
-          <h3 className="text-sm font-bold text-white tracking-widest uppercase mb-6 flex items-center gap-2">
-            <TrendingUp className="h-4 w-4 text-sky-500" />
-            Consumo por Categoria
-          </h3>
-          <div className="h-[300px] w-full">
-            {financialChartData.length > 0 ? (
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={financialChartData} margin={{ top: 5, right: 10, left: -10, bottom: 5 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#ffffff15" vertical={false} />
-                  <XAxis dataKey="name" stroke="#52525b" fontSize={11} tickLine={false} axisLine={false} />
-                  <YAxis stroke="#52525b" fontSize={11} tickLine={false} axisLine={false} tickFormatter={(val) => `R$ ${val}`} />
-                  <Tooltip 
-                    cursor={{ fill: '#ffffff05' }}
-                    contentStyle={{ backgroundColor: '#171717', borderColor: '#ffffff10', borderRadius: '8px', color: '#fff', fontSize: '12px' }}
-                    itemStyle={{ color: '#0ea5e9' }}
-                    formatter={(val) => [`R$ ${val}`, 'Gasto']}
-                  />
-                  <Bar dataKey="valor" fill="#0ea5e9" radius={[4, 4, 0, 0]} maxBarSize={40}>
-                    {financialChartData.map((entry, index) => (
-                      <Cell key={`cell-${index}`} fill={['#0ea5e9', '#3b82f6', '#8b5cf6', '#d946ef', '#f43f5e'][index % 5]} />
-                    ))}
-                  </Bar>
-                </BarChart>
-              </ResponsiveContainer>
-            ) : (
-              <div className="h-full flex items-center justify-center text-slate-500 text-xs font-mono uppercase tracking-widest">
-                Sem dados de compras (Mês atual)
               </div>
             )}
           </div>
