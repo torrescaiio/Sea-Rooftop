@@ -117,7 +117,7 @@ export default function App() {
         <div className="flex-1 flex flex-col bg-[#050505] lg:border border-slate-800 lg:rounded-2xl overflow-hidden shadow-2xl relative">
           
           {/* Top Header Panel */}
-          <header className="px-6 py-5 bg-transparent border-b border-white/[0.05] flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 shrink-0 backdrop-blur-md">
+          <header className="px-6 py-5 bg-transparent border-b border-white/[0.05] flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 shrink-0 relative z-0 backdrop-blur-md">
             <div>
               <div className="flex items-center space-x-2">
                 <Sun className="h-4 w-4 text-cyan-400 animate-spin-slow" />
@@ -141,7 +141,7 @@ export default function App() {
           </header>
 
           {/* Workspace core */}
-          <section className="flex-1 p-6 lg:p-8 overflow-y-auto relative">
+          <section className="flex-1 p-6 lg:p-8 overflow-y-auto relative z-10">
             {renderSelectedModule()}
           </section>
         </div>
