@@ -128,7 +128,7 @@ export default function Sidebar({ activeModule, setActiveModule, user, onSignOut
   return (
     <>
       {/* Mobile Top Bar */}
-      <div className="lg:hidden h-16 px-4 bg-slate-950 border-b border-slate-800 flex items-center justify-between shrink-0">
+      <div className="lg:hidden h-[calc(4rem+env(safe-area-inset-top))] pt-[env(safe-area-inset-top)] px-4 bg-slate-950 border-b border-slate-800 flex items-center justify-between shrink-0">
         <div className="flex items-center space-x-2">
           <div className="p-1.5 bg-gradient-to-tr from-cyan-500 to-blue-600 rounded-lg">
             <Flame className="h-4 w-4 text-white" />

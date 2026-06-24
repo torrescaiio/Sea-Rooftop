@@ -113,11 +113,11 @@ export default function App() {
       />
 
       {/* 2. DYNAMIC WORKSPACE LAYER */}
-      <main className="flex-1 flex flex-col min-w-0 overflow-y-auto lg:p-3 pb-0 lg:pb-3 pl-0 h-[100dvh]">
+      <main className="flex-1 flex flex-col min-w-0 min-h-0 overflow-y-auto lg:p-3 pb-0 lg:pb-3 pl-0">
         <div className="flex-1 flex flex-col bg-[#050505] lg:border border-slate-800 lg:rounded-2xl overflow-hidden shadow-2xl relative">
           
           {/* Top Header Panel */}
-          <header className="px-6 py-5 bg-transparent border-b border-white/[0.05] flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 shrink-0 relative z-0 backdrop-blur-md">
+          <header className="px-6 py-5 pt-[max(1.25rem,env(safe-area-inset-top))] bg-transparent border-b border-white/[0.05] flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 shrink-0 relative z-0 backdrop-blur-md">
             <div>
               <div className="flex items-center space-x-2">
                 <Sun className="h-4 w-4 text-cyan-400 animate-spin-slow" />
@@ -141,7 +141,7 @@ export default function App() {
           </header>
 
           {/* Workspace core */}
-          <section className="flex-1 p-6 lg:p-8 overflow-y-auto relative z-10">
+          <section className="flex-1 p-6 lg:p-8 overflow-y-auto">
             {renderSelectedModule()}
           </section>
         </div>
