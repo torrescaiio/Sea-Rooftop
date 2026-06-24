@@ -32,6 +32,11 @@ export default function ChecklistModule() {
   const [tarefa, setTarefa] = useState("");
   const [categoria, setCategoria] = useState<ChecklistItem["categoria"]>("");
   const [status, setStatus] = useState<ChecklistItem["status"]>("Pendente");
+  const [link, setLink] = useState("");
+  const [responsavel, setResponsavel] = useState("");
+  const [dataLimite, setDataLimite] = useState("");
+  const [prioridade, setPrioridade] = useState<ChecklistItem["prioridade"]>("Média");
+  const [observacoes, setObservacoes] = useState("");
 
   // Tab View state: "kanban" (desktop ideal) or "list"
   const [layoutMode, setLayoutMode] = useState<"kanban" | "list">("kanban");
@@ -73,12 +78,22 @@ export default function ChecklistModule() {
         tarefa: tarefa.trim(),
         categoria,
         status,
+        link: link.trim(),
+        responsavel: responsavel.trim(),
+        dataLimite,
+        prioridade,
+        observacoes: observacoes.trim()
       };
 
       await appDb.add("checklist_gerencial", data);
       appDb.dispatchUpdate();
       
       setTarefa("");
+      setLink("");
+      setResponsavel("");
+      setDataLimite("");
+      setPrioridade("Média");
+      setObservacoes("");
       setShowModal(false);
     } catch (err: any) {
       alert("Erro ao salvar tarefa: " + err.message);
@@ -326,6 +341,39 @@ export default function ChecklistModule() {
                             <p className="text-xs leading-relaxed text-slate-100 font-semibold break-words">
                               {task.tarefa}
                             </p>
+                            {(task.prioridade || task.dataLimite || task.responsavel) && (
+                              <div className="flex flex-wrap gap-2 pt-1 text-[10px] text-slate-400">
+                                {task.prioridade && (
+                                  <span className={`px-1.5 py-0.5 rounded border ${
+                                    task.prioridade === 'Alta' ? 'bg-rose-500/10 text-rose-400 border-rose-500/20' :
+                                    task.prioridade === 'Média' ? 'bg-amber-500/10 text-amber-400 border-amber-500/20' :
+                                    'bg-slate-500/10 text-slate-400 border-slate-500/20'
+                                  }`}>
+                                    {task.prioridade}
+                                  </span>
+                                )}
+                                {task.dataLimite && (
+                                  <span className="flex items-center gap-1">
+                                    <Clock className="w-3 h-3" /> {new Date(task.dataLimite).toLocaleDateString('pt-BR')}
+                                  </span>
+                                )}
+                                {task.responsavel && (
+                                  <span className="truncate max-w-[100px]" title={task.responsavel}>
+                                    👤 {task.responsavel}
+                                  </span>
+                                )}
+                              </div>
+                            )}
+                            {task.link && (
+                              <a href={task.link} target="_blank" rel="noopener noreferrer" className="text-[10px] text-cyan-400 hover:text-cyan-300 underline block truncate">
+                                🔗 {task.link}
+                              </a>
+                            )}
+                            {task.observacoes && (
+                              <p className="text-[10px] text-slate-500 italic line-clamp-2" title={task.observacoes}>
+                                {task.observacoes}
+                              </p>
+                            )}
                           </div>
 
                           {/* Controls bar */}
@@ -407,7 +455,40 @@ export default function ChecklistModule() {
                             }`}>
                               {task.status}
                             </span>
+                            {task.prioridade && (
+                              <span className={`inline-flex items-center px-2 py-0.5 rounded-md text-[9px] font-mono border ${
+                                task.prioridade === 'Alta' ? 'bg-rose-500/10 text-rose-400 border-rose-500/20' :
+                                task.prioridade === 'Média' ? 'bg-amber-500/10 text-amber-400 border-amber-500/20' :
+                                'bg-slate-500/10 text-slate-400 border-slate-500/20'
+                              }`}>
+                                {task.prioridade}
+                              </span>
+                            )}
+                            {task.dataLimite && (
+                               <span className="text-[10px] text-slate-400 flex items-center gap-1 bg-slate-950 px-2 py-0.5 rounded-md border border-slate-850">
+                                 <Clock className="w-3 h-3" /> {new Date(task.dataLimite).toLocaleDateString('pt-BR')}
+                               </span>
+                            )}
+                            {task.responsavel && (
+                               <span className="text-[10px] text-slate-400 bg-slate-950 px-2 py-0.5 rounded-md border border-slate-850">
+                                 👤 {task.responsavel}
+                               </span>
+                            )}
                           </div>
+                          {(task.link || task.observacoes) && (
+                            <div className="mt-2 space-y-1">
+                              {task.link && (
+                                <a href={task.link} target="_blank" rel="noopener noreferrer" className="text-[10px] text-cyan-400 hover:text-cyan-300 underline block truncate max-w-xs">
+                                  🔗 {task.link}
+                                </a>
+                              )}
+                              {task.observacoes && (
+                                <p className="text-[10px] text-slate-500 italic max-w-sm">
+                                  {task.observacoes}
+                                </p>
+                              )}
+                            </div>
+                          )}
                         </div>
                       </div>
 
@@ -512,37 +593,107 @@ export default function ChecklistModule() {
                 />
               </div>
 
-              <div>
-                <label className="block text-xs font-mono uppercase tracking-wider text-slate-400 mb-1.5 flex items-center justify-between">
-                  <span>Setor / Categoria</span>
-                  <button type="button" onClick={() => setShowManageCatModal(true)} className="text-cyan-400 hover:text-cyan-300 normal-case shrink-0 underline text-[10px] cursor-pointer">Gerenciar</button>
-                </label>
-                <select
-                  required
-                  value={categoria}
-                  onChange={(e) => setCategoria(e.target.value)}
-                  className="w-full bg-slate-950 border border-slate-850 rounded-lg p-2.5 text-slate-200 text-sm focus:border-cyan-500 focus:outline-none"
-                >
-                  <option value="" disabled>Selecione uma categoria...</option>
-                  {categories.map(cat => (
-                    <option key={cat} value={cat}>{cat}</option>
-                  ))}
-                </select>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-mono uppercase tracking-wider text-slate-400 mb-1.5 flex items-center justify-between">
+                    <span>Setor / Categoria</span>
+                    <button type="button" onClick={() => setShowManageCatModal(true)} className="text-cyan-400 hover:text-cyan-300 normal-case shrink-0 underline text-[10px] cursor-pointer">Gerenciar</button>
+                  </label>
+                  <select
+                    required
+                    value={categoria}
+                    onChange={(e) => setCategoria(e.target.value)}
+                    className="w-full bg-slate-950 border border-slate-850 rounded-lg p-2.5 text-slate-200 text-sm focus:border-cyan-500 focus:outline-none"
+                  >
+                    <option value="" disabled>Selecione uma categoria...</option>
+                    {categories.map(cat => (
+                      <option key={cat} value={cat}>{cat}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-mono uppercase tracking-wider text-slate-400 mb-1.5">
+                    Status Inicial
+                  </label>
+                  <select
+                    value={status}
+                    onChange={(e) => setStatus(e.target.value as any)}
+                    className="w-full bg-slate-950 border border-slate-850 rounded-lg p-2.5 text-slate-200 text-sm focus:border-cyan-500 focus:outline-none"
+                  >
+                    <option value="Pendente">Pendente</option>
+                    <option value="Em Andamento">Em Andamento</option>
+                    <option value="Concluído">Concluído</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-mono uppercase tracking-wider text-slate-400 mb-1.5">
+                    Responsável
+                  </label>
+                  <input
+                    type="text"
+                    value={responsavel}
+                    onChange={(e) => setResponsavel(e.target.value)}
+                    placeholder="Nome do responsável"
+                    className="w-full bg-slate-950 border border-slate-850 rounded-lg p-2.5 text-slate-200 text-sm focus:border-cyan-500 focus:outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-mono uppercase tracking-wider text-slate-400 mb-1.5">
+                    Data Limite
+                  </label>
+                  <input
+                    type="date"
+                    value={dataLimite}
+                    onChange={(e) => setDataLimite(e.target.value)}
+                    className="w-full bg-slate-950 border border-slate-850 rounded-lg p-2.5 text-slate-200 text-sm focus:border-cyan-500 focus:outline-none"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-mono uppercase tracking-wider text-slate-400 mb-1.5">
+                    Prioridade
+                  </label>
+                  <select
+                    value={prioridade}
+                    onChange={(e) => setPrioridade(e.target.value as any)}
+                    className="w-full bg-slate-950 border border-slate-850 rounded-lg p-2.5 text-slate-200 text-sm focus:border-cyan-500 focus:outline-none"
+                  >
+                    <option value="Baixa">Baixa</option>
+                    <option value="Média">Média</option>
+                    <option value="Alta">Alta</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-mono uppercase tracking-wider text-slate-400 mb-1.5">
+                    Link de Referência
+                  </label>
+                  <input
+                    type="url"
+                    value={link}
+                    onChange={(e) => setLink(e.target.value)}
+                    placeholder="https://..."
+                    className="w-full bg-slate-950 border border-slate-850 rounded-lg p-2.5 text-slate-200 text-sm focus:border-cyan-500 focus:outline-none"
+                  />
+                </div>
               </div>
 
               <div>
                 <label className="block text-xs font-mono uppercase tracking-wider text-slate-400 mb-1.5">
-                  Status Inicial
+                  Observações
                 </label>
-                <select
-                  value={status}
-                  onChange={(e) => setStatus(e.target.value as any)}
-                  className="w-full bg-slate-950 border border-slate-850 rounded-lg p-2.5 text-slate-200 text-sm focus:border-cyan-500 focus:outline-none"
-                >
-                  <option value="Pendente">Pendente</option>
-                  <option value="Em Andamento">Em Andamento</option>
-                  <option value="Concluído">Concluído</option>
-                </select>
+                <textarea
+                  value={observacoes}
+                  onChange={(e) => setObservacoes(e.target.value)}
+                  placeholder="Notas adicionais sobre a tarefa..."
+                  rows={2}
+                  className="w-full bg-slate-950 border border-slate-850 rounded-lg p-3 text-slate-200 text-xs leading-relaxed focus:border-cyan-500 focus:outline-none resize-none font-sans"
+                />
               </div>
 
               <div className="flex items-center justify-end space-x-3 pt-4 border-t border-slate-800">

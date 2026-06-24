@@ -30,7 +30,11 @@ export default function ComprasModule() {
   const [newQuantidade, setNewQuantidade] = useState(1);
   const [newStatus, setNewStatus] = useState<GeneralPurchase["status"]>("A Orçar");
   const [newFornecedor, setNewFornecedor] = useState("");
-  const [newValorComprado, setNewValorComprado] = useState("");
+  const [newLink, setNewLink] = useState("");
+  const [newValorUnitario, setNewValorUnitario] = useState("");
+
+  // Computed total
+  const computedValorTotal = (Number(newValorUnitario) || 0) * newQuantidade;
 
   // Filter state
   const [searchTerm, setSearchTerm] = useState("");
@@ -66,11 +70,14 @@ export default function ComprasModule() {
         quantidade: Number(newQuantidade),
         status: newStatus,
         fornecedor: newFornecedor.trim(),
+        link: newLink.trim(),
       };
       
-      if (newValorComprado) {
-        data.valorComprado = Number(newValorComprado);
+      if (newValorUnitario) {
+        data.valorUnitario = Number(newValorUnitario);
+        data.valorComprado = computedValorTotal;
       } else {
+        data.valorUnitario = null;
         data.valorComprado = null; // Clear if empty
       }
 
@@ -84,7 +91,8 @@ export default function ComprasModule() {
       setNewItem("");
       setNewQuantidade(1);
       setNewFornecedor("");
-      setNewValorComprado("");
+      setNewLink("");
+      setNewValorUnitario("");
       setEditItemId(null);
       setShowModal(false);
     } catch (err: any) {
@@ -100,7 +108,14 @@ export default function ComprasModule() {
       setNewQuantidade(item.quantidade);
       setNewStatus(item.status);
       setNewFornecedor(item.fornecedor || "");
-      setNewValorComprado(item.valorComprado ? item.valorComprado.toString() : "");
+      setNewLink(item.link || "");
+      if (item.valorUnitario) {
+        setNewValorUnitario(item.valorUnitario.toString());
+      } else if (item.valorComprado && item.quantidade) {
+        setNewValorUnitario((item.valorComprado / item.quantidade).toFixed(2));
+      } else {
+        setNewValorUnitario("");
+      }
     } else {
       setEditItemId(null);
       setNewItem("");
@@ -108,7 +123,8 @@ export default function ComprasModule() {
       setNewQuantidade(1);
       setNewStatus("A Orçar");
       setNewFornecedor("");
-      setNewValorComprado("");
+      setNewLink("");
+      setNewValorUnitario("");
     }
     setShowModal(true);
   };
@@ -348,6 +364,11 @@ export default function ComprasModule() {
                         🏭 {ui.fornecedor}
                       </span>
                     )}
+                    {ui.link && (
+                      <a href={ui.link} target="_blank" rel="noopener noreferrer" className="text-[10px] text-cyan-400 hover:text-cyan-300 underline line-clamp-1 break-all mt-0.5" title={ui.link}>
+                        🔗 Link do Produto
+                      </a>
+                    )}
                   </td>
 
                   {/* Quantity with quick adjusters */}
@@ -520,16 +541,44 @@ export default function ComprasModule() {
 
                 <div>
                   <label className="block text-xs font-mono uppercase tracking-wider text-slate-400 mb-1.5">
-                    Valor de Compra (R$)
+                    Link do Produto
+                  </label>
+                  <input
+                    type="url"
+                    value={newLink}
+                    onChange={(e) => setNewLink(e.target.value)}
+                    placeholder="https://..."
+                    className="w-full bg-slate-950 border border-slate-850 rounded-lg p-2.5 text-slate-200 text-sm focus:border-cyan-500 focus:outline-none"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-mono uppercase tracking-wider text-slate-400 mb-1.5">
+                    Valor Unitário (R$)
                   </label>
                   <input
                     type="number"
                     step="0.01"
                     min="0"
-                    value={newValorComprado}
-                    onChange={(e) => setNewValorComprado(e.target.value)}
+                    value={newValorUnitario}
+                    onChange={(e) => setNewValorUnitario(e.target.value)}
                     placeholder="0.00"
                     className="w-full bg-slate-950 border border-slate-850 rounded-lg p-2.5 text-slate-200 text-sm focus:border-cyan-500 focus:outline-none"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-mono uppercase tracking-wider text-slate-400 mb-1.5">
+                    Valor de Compra Total (R$)
+                  </label>
+                  <input
+                    type="text"
+                    readOnly
+                    value={computedValorTotal > 0 ? computedValorTotal.toFixed(2) : ""}
+                    placeholder="Automático"
+                    className="w-full bg-slate-900 border border-slate-850 rounded-lg p-2.5 text-slate-400 text-sm focus:outline-none cursor-not-allowed"
                   />
                 </div>
               </div>

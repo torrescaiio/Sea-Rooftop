@@ -1,6 +1,16 @@
 import React, { useState, useEffect } from "react";
 import { appDb } from "../firebase";
 import { 
+  BarChart, 
+  Bar, 
+  XAxis, 
+  YAxis, 
+  CartesianGrid, 
+  Tooltip, 
+  ResponsiveContainer,
+  Cell
+} from 'recharts';
+import { 
   Users, 
   CheckSquare, 
   AlertTriangle, 
@@ -89,7 +99,7 @@ export default function DashboardModule() {
     try {
       await appDb.add("compras_gerais", {
         item: qaItem.trim(),
-        categoria: "Bar",
+        categoria: "Outros", // Fallback, could be Bar
         quantidade: Number(qaQtd),
         status: "A Orçar",
         fornecedor: "",
@@ -101,6 +111,45 @@ export default function DashboardModule() {
       setQaQtd(1);
     } catch (err: any) { alert(err.message); }
   };
+
+  // --- CHART DATA PREPARATION --- //
+  
+  // 1. Ocorrências por Colaborador
+  const occurrencesByColab = ocorrencias.reduce((acc, curr) => {
+    const identifier = curr.funcionarioEnvolvidoId || curr.responsavelResolucao;
+    if (identifier && identifier.trim() !== "") {
+      acc[identifier] = (acc[identifier] || 0) + 1;
+    }
+    return acc;
+  }, {} as Record<string, number>);
+
+  const occurrencesChartData = Object.keys(occurrencesByColab).map(identifier => {
+    const colab = equipe.find(e => e.id === identifier);
+    const rawName = colab ? colab.nome : identifier;
+    return {
+      name: rawName.split(' ')[0], // First name only
+      ocorrencias: occurrencesByColab[identifier]
+    };
+  }).filter(d => d.ocorrencias > 0)
+    .sort((a, b) => b.ocorrencias - a.ocorrencias)
+    .slice(0, 6);
+
+  // 2. Consumo Financeiro por Categoria de Compras (Ao longo do mês)
+  const currentMonthDate = new Date();
+  const financialByCategory = compras.reduce((acc, curr) => {
+    // Assuming 'createdAt' or fallback
+    const isThisMonth = !curr.createdAt || new Date(curr.createdAt).getMonth() === currentMonthDate.getMonth();
+    
+    if (isThisMonth && curr.status === 'Comprado' && curr.valorComprado) {
+      acc[curr.categoria] = (acc[curr.categoria] || 0) + curr.valorComprado;
+    }
+    return acc;
+  }, {} as Record<string, number>);
+
+  const financialChartData = Object.keys(financialByCategory).map(cat => ({
+    name: cat,
+    valor: financialByCategory[cat]
+  })).sort((a, b) => b.valor - a.valor);
 
   return (
     <div className="space-y-8">
@@ -226,6 +275,72 @@ export default function DashboardModule() {
           </div>
         </div>
 
+      </div>
+
+      {/* CHARTS SECTION */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-8">
+        {/* Gráfico Ocorrências por Colaborador */}
+        <div className="bg-[#0A0A0A] border border-white/10 rounded-2xl p-6 min-w-0 overflow-hidden">
+          <h3 className="text-sm font-bold text-white tracking-widest uppercase mb-6 flex items-center gap-2">
+            <TrendingUp className="h-4 w-4 text-rose-500" />
+            Ocorrências por Colaborador
+          </h3>
+          <div className="h-[300px] w-full">
+            {occurrencesChartData.length > 0 ? (
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={occurrencesChartData} margin={{ top: 5, right: 10, left: -20, bottom: 5 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#ffffff15" vertical={false} />
+                  <XAxis dataKey="name" stroke="#52525b" fontSize={11} tickLine={false} axisLine={false} />
+                  <YAxis stroke="#52525b" fontSize={11} tickLine={false} axisLine={false} allowDecimals={false} />
+                  <Tooltip 
+                    cursor={{ fill: '#ffffff05' }}
+                    contentStyle={{ backgroundColor: '#171717', borderColor: '#ffffff10', borderRadius: '8px', color: '#fff', fontSize: '12px' }}
+                    itemStyle={{ color: '#f43f5e' }}
+                  />
+                  <Bar dataKey="ocorrencias" fill="#f43f5e" radius={[4, 4, 0, 0]} maxBarSize={40} />
+                </BarChart>
+              </ResponsiveContainer>
+            ) : (
+              <div className="h-full flex items-center justify-center text-slate-500 text-xs font-mono uppercase tracking-widest">
+                Sem dados para exibir
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Gráfico Consumo Financeiro */}
+        <div className="bg-[#0A0A0A] border border-white/10 rounded-2xl p-6 min-w-0 overflow-hidden">
+          <h3 className="text-sm font-bold text-white tracking-widest uppercase mb-6 flex items-center gap-2">
+            <TrendingUp className="h-4 w-4 text-sky-500" />
+            Consumo por Categoria
+          </h3>
+          <div className="h-[300px] w-full">
+            {financialChartData.length > 0 ? (
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={financialChartData} margin={{ top: 5, right: 10, left: -10, bottom: 5 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#ffffff15" vertical={false} />
+                  <XAxis dataKey="name" stroke="#52525b" fontSize={11} tickLine={false} axisLine={false} />
+                  <YAxis stroke="#52525b" fontSize={11} tickLine={false} axisLine={false} tickFormatter={(val) => `R$ ${val}`} />
+                  <Tooltip 
+                    cursor={{ fill: '#ffffff05' }}
+                    contentStyle={{ backgroundColor: '#171717', borderColor: '#ffffff10', borderRadius: '8px', color: '#fff', fontSize: '12px' }}
+                    itemStyle={{ color: '#0ea5e9' }}
+                    formatter={(val) => [`R$ ${val}`, 'Gasto']}
+                  />
+                  <Bar dataKey="valor" fill="#0ea5e9" radius={[4, 4, 0, 0]} maxBarSize={40}>
+                    {financialChartData.map((entry, index) => (
+                      <Cell key={`cell-${index}`} fill={['#0ea5e9', '#3b82f6', '#8b5cf6', '#d946ef', '#f43f5e'][index % 5]} />
+                    ))}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            ) : (
+              <div className="h-full flex items-center justify-center text-slate-500 text-xs font-mono uppercase tracking-widest">
+                Sem dados de compras (Mês atual)
+              </div>
+            )}
+          </div>
+        </div>
       </div>
 
       {/* QUICK ACTIONS BAR */}

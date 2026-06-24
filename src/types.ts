@@ -13,6 +13,11 @@ export interface ChecklistItem {
   tarefa: string;
   categoria: string;
   status: 'Pendente' | 'Em Andamento' | 'Concluído';
+  link?: string;
+  responsavel?: string;
+  dataLimite?: string;
+  prioridade?: 'Baixa' | 'Média' | 'Alta';
+  observacoes?: string;
   createdAt: string;
 }
 
@@ -57,7 +62,9 @@ export interface GeneralPurchase {
   categoria: string;
   quantidade: number;
   fornecedor?: string;
-  valorComprado?: number;
+  link?: string;
+  valorUnitario?: number;
+  valorComprado?: number; // Total value
   status: 'A Orçar' | 'Solicitado' | 'Comprado';
   createdAt: string;
 }
