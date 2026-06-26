@@ -139,9 +139,9 @@ export default function AgendaModule() {
     sortedEvents.forEach(evt => {
       const rowData = [
         evt.data,
-        evt.nomeAtracao,
+        evt.artistaNome,
         evt.tipoEvento,
-        `R$ ${evt.cacheCombinado.toFixed(2)}`,
+        `R$ ${(evt.cacheCusto || 0).toFixed(2)}`,
         evt.status
       ];
       tableRows.push(rowData);
