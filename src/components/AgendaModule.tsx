@@ -20,6 +20,8 @@ import {
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 
+import { formatDateBR } from "../utils";
+
 export default function AgendaModule() {
   const [events, setEvents] = useState<AgendaEvent[]>([]);
   const [loading, setLoading] = useState(true);
@@ -138,7 +140,7 @@ export default function AgendaModule() {
     
     sortedEvents.forEach(evt => {
       const rowData = [
-        evt.data,
+        formatDateBR(evt.data),
         evt.artistaNome,
         evt.tipoEvento,
         `R$ ${(evt.cacheCusto || 0).toFixed(2)}`,
@@ -220,7 +222,7 @@ export default function AgendaModule() {
 
                   <span className={`inline-flex items-center gap-1 text-[11px] font-mono text-cyan-400`}>
                     <Calendar className="h-3.5 w-3.5 text-slate-505" />
-                    {evt.data}
+                    {formatDateBR(evt.data)}
                   </span>
                 </div>
 
@@ -301,7 +303,7 @@ export default function AgendaModule() {
               <div className="grid grid-cols-2 gap-4 bg-slate-950/30 p-4 border border-slate-850 rounded-xl font-mono text-xs">
                 <div>
                   <p className="text-slate-500 uppercase text-[9px]">Data da Atração</p>
-                  <p className="text-sm font-semibold text-slate-200 mt-0.5">{activeDetailEvent.data}</p>
+                  <p className="text-sm font-semibold text-slate-200 mt-0.5">{formatDateBR(activeDetailEvent.data)}</p>
                 </div>
                 <div>
                   <p className="text-slate-500 uppercase text-[9px]">Custo / Cachê Estimado</p>

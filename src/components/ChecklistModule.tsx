@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { appDb } from "../firebase";
 import { ChecklistItem, ChecklistCategory } from "../types";
+import { formatDateBR } from "../utils";
 import { 
   CheckSquare, 
   Plus, 
@@ -354,7 +355,7 @@ export default function ChecklistModule() {
                                 )}
                                 {task.dataLimite && (
                                   <span className="flex items-center gap-1">
-                                    <Clock className="w-3 h-3" /> {new Date(task.dataLimite).toLocaleDateString('pt-BR')}
+                                    <Clock className="w-3 h-3" /> {formatDateBR(task.dataLimite)}
                                   </span>
                                 )}
                                 {task.responsavel && (
@@ -466,7 +467,7 @@ export default function ChecklistModule() {
                             )}
                             {task.dataLimite && (
                                <span className="text-[10px] text-slate-400 flex items-center gap-1 bg-slate-950 px-2 py-0.5 rounded-md border border-slate-850">
-                                 <Clock className="w-3 h-3" /> {new Date(task.dataLimite).toLocaleDateString('pt-BR')}
+                                 <Clock className="w-3 h-3" /> {formatDateBR(task.dataLimite)}
                                </span>
                             )}
                             {task.responsavel && (

@@ -20,6 +20,7 @@ import {
 } from "lucide-react";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
+import { formatDateBR } from "../utils";
 
 export default function OcorrenciasModule() {
   const [ocorrencias, setOcorrencias] = useState<Occurrence[]>([]);
@@ -148,7 +149,7 @@ export default function OcorrenciasModule() {
     filteredLogs.forEach(log => {
       const func = log.funcionarioEnvolvidoId ? equipe.find(e => e.id === log.funcionarioEnvolvidoId) : null;
       const rowData = [
-        log.data,
+        formatDateBR(log.data),
         log.categoria,
         log.descricaoDetalhada,
         log.responsavelResolucao,
@@ -284,7 +285,7 @@ export default function OcorrenciasModule() {
                     </span>
                     <span className={`inline-flex items-center gap-1 text-[10px] font-mono text-slate-400`}>
                       <Calendar className="h-3.5 w-3.5" />
-                      {log.data}
+                      {formatDateBR(log.data)}
                     </span>
                   </div>
 
