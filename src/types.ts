@@ -66,6 +66,7 @@ export interface GeneralPurchase {
   valorUnitario?: number;
   valorComprado?: number; // Total value
   status: 'A Orçar' | 'Solicitado' | 'Comprado';
+  imagem?: string;
   createdAt: string;
 }
 

@@ -32,6 +32,7 @@ export default function ComprasModule() {
   const [newFornecedor, setNewFornecedor] = useState("");
   const [newLink, setNewLink] = useState("");
   const [newValorUnitario, setNewValorUnitario] = useState("");
+  const [newImagem, setNewImagem] = useState("");
 
   // Computed total
   const computedValorTotal = (Number(newValorUnitario) || 0) * newQuantidade;
@@ -71,6 +72,7 @@ export default function ComprasModule() {
         status: newStatus,
         fornecedor: newFornecedor.trim(),
         link: newLink.trim(),
+        imagem: newImagem,
       };
       
       if (newValorUnitario) {
@@ -93,6 +95,7 @@ export default function ComprasModule() {
       setNewFornecedor("");
       setNewLink("");
       setNewValorUnitario("");
+      setNewImagem("");
       setEditItemId(null);
       setShowModal(false);
     } catch (err: any) {
@@ -109,6 +112,7 @@ export default function ComprasModule() {
       setNewStatus(item.status);
       setNewFornecedor(item.fornecedor || "");
       setNewLink(item.link || "");
+      setNewImagem(item.imagem || "");
       if (item.valorUnitario) {
         setNewValorUnitario(item.valorUnitario.toString());
       } else if (item.valorComprado && item.quantidade) {
@@ -124,6 +128,7 @@ export default function ComprasModule() {
       setNewStatus("A Orçar");
       setNewFornecedor("");
       setNewLink("");
+      setNewImagem("");
       setNewValorUnitario("");
     }
     setShowModal(true);
@@ -351,8 +356,11 @@ export default function ComprasModule() {
             <tbody className="divide-y divide-slate-800/50 text-slate-300 text-sm">
               {filteredItems.map((ui) => (
                 <tr key={ui.id} className="hover:bg-slate-850/30 transition">
-                  <td className="p-4 font-semibold text-slate-100 font-mono">
-                    {ui.item}
+                  <td className="p-4 font-semibold text-slate-100 font-mono flex items-center gap-3">
+                    {ui.imagem && (
+                      <img src={ui.imagem} alt={ui.item} className="h-10 w-10 object-cover rounded border border-slate-700" />
+                    )}
+                    <span>{ui.item}</span>
                   </td>
                   
                   <td className="p-4 flex flex-col items-start gap-2">
@@ -581,6 +589,34 @@ export default function ComprasModule() {
                     className="w-full bg-slate-900 border border-slate-850 rounded-lg p-2.5 text-slate-400 text-sm focus:outline-none cursor-not-allowed"
                   />
                 </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-mono uppercase tracking-wider text-slate-400 mb-1.5">
+                  Imagem do Produto (Opcional)
+                </label>
+                <input
+                  type="file"
+                  accept="image/*"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (file) {
+                      const reader = new FileReader();
+                      reader.onloadend = () => {
+                        setNewImagem(reader.result as string);
+                      };
+                      reader.readAsDataURL(file);
+                    } else {
+                      setNewImagem("");
+                    }
+                  }}
+                  className="w-full bg-slate-950 border border-slate-850 rounded-lg p-2.5 text-slate-200 text-sm focus:border-cyan-500 focus:outline-none file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-cyan-500/10 file:text-cyan-400 hover:file:bg-cyan-500/20 cursor-pointer"
+                />
+                {newImagem && (
+                  <div className="mt-3">
+                    <img src={newImagem} alt="Preview" className="h-24 w-24 object-cover rounded-lg border border-slate-800" />
+                  </div>
+                )}
               </div>
 
               <div className="flex items-center justify-end space-x-3 pt-4 border-t border-slate-800">
