@@ -15,7 +15,8 @@ import {
   X,
   SlidersHorizontal,
   Info,
-  FileDown
+  FileDown,
+  Pencil
 } from "lucide-react";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
@@ -32,6 +33,7 @@ export default function AgendaModule() {
 
   // Add Event Modal form states
   const [showAddModal, setShowAddModal] = useState(false);
+  const [editEventId, setEditEventId] = useState<string | null>(null);
   const [data, setData] = useState(new Date().toISOString().split("T")[0]);
   const [tipoEvento, setTipoEvento] = useState<AgendaEvent["tipoEvento"]>("Música ao Vivo");
   const [artistaNome, setArtistaNome] = useState("");
@@ -58,7 +60,38 @@ export default function AgendaModule() {
     return () => unsubscribe();
   }, []);
 
-  const handleCreateEvent = async (e: React.FormEvent) => {
+  const handleOpenAdd = () => {
+    setEditEventId(null);
+    setData(new Date().toISOString().split("T")[0]);
+    setTipoEvento("Música ao Vivo");
+    setArtistaNome("");
+    setHorarioPassagemSom("17:30");
+    setHorarioInicio("19:30");
+    setHorarioTermino("23:00");
+    setCacheCusto(500);
+    setNecessidadesTecnicas("");
+    setChavePix("");
+    setStatus("A Confirmar");
+    setShowAddModal(true);
+  };
+
+  const handleOpenEdit = (evt: AgendaEvent, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setEditEventId(evt.id);
+    setData(evt.data);
+    setTipoEvento(evt.tipoEvento);
+    setArtistaNome(evt.artistaNome);
+    setHorarioPassagemSom(evt.horarioPassagemSom);
+    setHorarioInicio(evt.horarioInicio);
+    setHorarioTermino(evt.horarioTermino);
+    setCacheCusto(evt.cacheCusto);
+    setNecessidadesTecnicas(evt.necessidadesTecnicas || "");
+    setChavePix(evt.chavePix || "");
+    setStatus(evt.status);
+    setShowAddModal(true);
+  };
+
+  const handleSaveEvent = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!artistaNome.trim() || cacheCusto < 0) {
       alert("Por favor insira um nome de artista/atração válido.");
@@ -79,16 +112,21 @@ export default function AgendaModule() {
         status
       };
 
-      await appDb.add("agenda_eventos", dataPayload);
+      if (editEventId) {
+        await appDb.update("agenda_eventos", editEventId, dataPayload);
+      } else {
+        await appDb.add("agenda_eventos", dataPayload);
+      }
       appDb.dispatchUpdate();
 
       setArtistaNome("");
       setNecessidadesTecnicas("");
       setChavePix("");
       setCacheCusto(500);
+      setEditEventId(null);
       setShowAddModal(false);
     } catch (err: any) {
-      alert("Erro ao adicionar atração: " + err.message);
+      alert("Erro ao salvar atração: " + err.message);
     }
   };
 
@@ -184,7 +222,7 @@ export default function AgendaModule() {
             Exportar PDF
           </button>
           <button
-            onClick={() => setShowAddModal(true)}
+            onClick={handleOpenAdd}
             className="inline-flex items-center gap-2 bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-600 hover:to-blue-700 text-white font-medium text-sm px-4 py-2.5 rounded-lg shadow-lg hover:shadow-cyan-500/10 transition cursor-pointer"
           >
             <PlusCircle className="h-4 w-4" />
@@ -262,6 +300,15 @@ export default function AgendaModule() {
                     {evt.status}
                   </span>
                   
+                  {/* Edit button wrapper */}
+                  <button
+                    onClick={(e) => handleOpenEdit(evt, e)}
+                    className="p-1 border border-slate-850 rounded hover:bg-slate-800 text-slate-500 hover:text-cyan-400 transition"
+                    title="Editar"
+                  >
+                    <Pencil className="h-3 w-3" />
+                  </button>
+
                   {/* Delete button wrapper */}
                   <button
                     onClick={(e) => handleDeleteEvent(evt.id, e)}
@@ -395,12 +442,14 @@ export default function AgendaModule() {
         </div>
       )}
 
-      {/* ADD AGENDA ITEM MODAL */}
+      {/* ADD / EDIT AGENDA ITEM MODAL */}
       {showAddModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
           <div className="w-full max-w-lg bg-slate-900 border border-slate-800 rounded-2xl shadow-xl overflow-y-auto max-h-[90vh] animate-in zoom-in-95 duration-150">
             <div className="flex items-center justify-between p-5 border-b border-slate-800">
-              <h3 className="text-lg font-bold text-white">Escalar Atração na Agenda</h3>
+              <h3 className="text-lg font-bold text-white">
+                {editEventId ? "Editar Atração" : "Escalar Atração na Agenda"}
+              </h3>
               <button 
                 onClick={() => setShowAddModal(false)}
                 className="p-1.5 hover:bg-slate-800 text-slate-400 hover:text-white rounded-lg"
@@ -409,8 +458,8 @@ export default function AgendaModule() {
               </button>
             </div>
             
-            <form onSubmit={handleCreateEvent} className="p-6 space-y-4">
-              <div className="grid grid-cols-2 gap-4">
+            <form onSubmit={handleSaveEvent} className="p-6 space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-xs font-mono uppercase tracking-wider text-slate-400 mb-1.5">
                     Data da Atração
@@ -457,7 +506,7 @@ export default function AgendaModule() {
               </div>
 
               {/* Sound timings layout */}
-              <div className="grid grid-cols-3 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div>
                   <label className="block text-xs font-mono uppercase tracking-wider text-slate-400 mb-1.5">
                     Somcheck
@@ -501,7 +550,7 @@ export default function AgendaModule() {
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-xs font-mono uppercase tracking-wider text-slate-400 mb-1.5">
                     Valor do Cachê (R$)
@@ -570,7 +619,7 @@ export default function AgendaModule() {
                   type="submit"
                   className="px-5 py-2.5 bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-600 hover:to-blue-700 text-white rounded-lg text-sm font-medium shadow-md transition cursor-pointer min-h-[44px]"
                 >
-                  Escalar Show
+                  {editEventId ? "Salvar Alterações" : "Escalar Show"}
                 </button>
               </div>
             </form>
