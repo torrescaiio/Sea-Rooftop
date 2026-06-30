@@ -80,6 +80,7 @@ export interface AgendaEvent {
   horarioTermino: string;
   cacheCusto: number;
   necessidadesTecnicas: string;
+  chavePix?: string;
   status: 'A Confirmar' | 'Confirmado' | 'Cancelado';
   createdAt: string;
 }

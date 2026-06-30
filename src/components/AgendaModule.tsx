@@ -40,6 +40,7 @@ export default function AgendaModule() {
   const [horarioTermino, setHorarioTermino] = useState("23:00");
   const [cacheCusto, setCacheCusto] = useState<number>(500);
   const [necessidadesTecnicas, setNecessidadesTecnicas] = useState("");
+  const [chavePix, setChavePix] = useState("");
   const [status, setStatus] = useState<AgendaEvent["status"]>("A Confirmar");
 
   useEffect(() => {
@@ -74,6 +75,7 @@ export default function AgendaModule() {
         horarioTermino,
         cacheCusto: Number(cacheCusto),
         necessidadesTecnicas: necessidadesTecnicas.trim(),
+        chavePix: chavePix.trim(),
         status
       };
 
@@ -82,6 +84,7 @@ export default function AgendaModule() {
 
       setArtistaNome("");
       setNecessidadesTecnicas("");
+      setChavePix("");
       setCacheCusto(500);
       setShowAddModal(false);
     } catch (err: any) {
@@ -135,7 +138,7 @@ export default function AgendaModule() {
     const doc = new jsPDF();
     doc.text("Relatório da Agenda de Eventos", 14, 15);
     
-    const tableColumn = ["Data", "Atração", "Tipo", "Cachê", "Status"];
+    const tableColumn = ["Data", "Atração", "Tipo", "Chave PIX", "Cachê", "Status"];
     const tableRows: any[] = [];
     
     sortedEvents.forEach(evt => {
@@ -143,6 +146,7 @@ export default function AgendaModule() {
         formatDateBR(evt.data),
         evt.artistaNome,
         evt.tipoEvento,
+        evt.chavePix || "N/A",
         `R$ ${(evt.cacheCusto || 0).toFixed(2)}`,
         evt.status
       ];
@@ -311,6 +315,14 @@ export default function AgendaModule() {
                     R$ {activeDetailEvent.cacheCusto.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}
                   </p>
                 </div>
+                {activeDetailEvent.chavePix && (
+                  <div className="col-span-2 mt-2">
+                    <p className="text-slate-500 uppercase text-[9px]">Chave PIX do Artista</p>
+                    <p className="text-sm font-mono text-slate-300 mt-0.5">
+                      {activeDetailEvent.chavePix}
+                    </p>
+                  </div>
+                )}
               </div>
 
               {/* Timing schedule specifications */}
@@ -530,6 +542,19 @@ export default function AgendaModule() {
                   placeholder="Liste amplificadores, tomadas, pedestais de microfone ou mesas Pioneer requisitadas..."
                   rows={3}
                   className="w-full bg-slate-950 border border-slate-850 rounded-lg p-3 text-slate-200 text-xs leading-relaxed focus:border-cyan-500 focus:outline-none resize-none font-mono"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-mono uppercase tracking-wider text-slate-400 mb-1.5">
+                  Chave PIX do Artista (Opcional)
+                </label>
+                <input
+                  type="text"
+                  value={chavePix}
+                  onChange={(e) => setChavePix(e.target.value)}
+                  placeholder="E-mail, CPF, CNPJ ou Telefone..."
+                  className="w-full bg-slate-950 border border-slate-850 rounded-lg p-2.5 text-slate-200 text-sm focus:border-cyan-500 focus:outline-none font-mono"
                 />
               </div>
 
