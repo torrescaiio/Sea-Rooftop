@@ -122,6 +122,16 @@ export default function VinhosModule() {
     }
   };
 
+  const handleDeletePedido = async (id: string) => {
+    if (confirm("Tem certeza que deseja excluir este pedido?")) {
+      try {
+        await appDb.delete("pedidos_vinho", id);
+      } catch (err: any) {
+        alert("Erro ao excluir pedido: " + err.message);
+      }
+    }
+  };
+
   const iniciarNovoPedido = () => {
     // Inicializa todos com quantidade 0
     const itens = vinhos.map(v => ({ vinhoId: v.id, quantidade: 0 }));
@@ -383,6 +393,13 @@ export default function VinhosModule() {
                     >
                       <FileDown className="h-3.5 w-3.5" />
                       Baixar PDF
+                    </button>
+                    <button 
+                      onClick={() => handleDeletePedido(p.id)}
+                      className="bg-slate-800/50 hover:bg-slate-800 text-rose-400 hover:text-rose-300 text-xs py-2 px-3 rounded font-medium flex items-center justify-center transition border border-slate-800/50 hover:border-rose-900"
+                      title="Excluir Pedido"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
                     </button>
                   </div>
                 </div>
