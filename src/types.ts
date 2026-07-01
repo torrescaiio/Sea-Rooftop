@@ -133,3 +133,14 @@ export interface ExtraSemana {
   createdAt: string;
 }
 
+export interface VendaSoftcom {
+  id: string;
+  dataUpload: string;
+  garcom: string;
+  nome: string;
+  grupo: string;
+  quantidade: number;
+  valorVenda: number;
+  createdAt: string;
+}
+
