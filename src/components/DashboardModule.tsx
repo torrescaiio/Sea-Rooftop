@@ -21,7 +21,9 @@ import {
   Activity,
   Zap,
   Plus,
-  X
+  X,
+  Wine,
+  Briefcase
 } from "lucide-react";
 
 export default function DashboardModule() {
@@ -31,6 +33,9 @@ export default function DashboardModule() {
   const [reparos, setReparos] = useState<any[]>([]);
   const [compras, setCompras] = useState<any[]>([]);
   const [agenda, setAgenda] = useState<any[]>([]);
+  const [vinhos, setVinhos] = useState<any[]>([]);
+  const [pedidosVinho, setPedidosVinho] = useState<any[]>([]);
+  const [extras, setExtras] = useState<any[]>([]);
 
   const [quickAction, setQuickAction] = useState<'ocorrencia' | 'compra' | null>(null);
   
@@ -48,6 +53,9 @@ export default function DashboardModule() {
     const unsubReparos = appDb.subscribe("manutencao_reparos", setReparos);
     const unsubCompras = appDb.subscribe("compras_gerais", setCompras);
     const unsubAgenda = appDb.subscribe("agenda_eventos", setAgenda);
+    const unsubVinhos = appDb.subscribe("vinhos", setVinhos);
+    const unsubPedidosVinho = appDb.subscribe("pedidos_vinho", setPedidosVinho);
+    const unsubExtras = appDb.subscribe("extras_semana", setExtras);
 
     return () => {
       unsubEquipe();
@@ -56,6 +64,9 @@ export default function DashboardModule() {
       unsubReparos();
       unsubCompras();
       unsubAgenda();
+      unsubVinhos();
+      unsubPedidosVinho();
+      unsubExtras();
     };
   }, []);
 
@@ -74,6 +85,12 @@ export default function DashboardModule() {
   
   const currentDate = new Date().toISOString().split("T")[0];
   const upcomingEvents = agenda.filter(a => a.data >= currentDate && a.status !== "Cancelado").length;
+
+  const currentMonthDate = new Date();
+  const currentMonthString = `${currentMonthDate.getFullYear()}-${String(currentMonthDate.getMonth() + 1).padStart(2, '0')}`;
+  
+  const pendingPedidosVinho = pedidosVinho.filter(p => p.status === "Pendente").length;
+  const totalDiariasMes = extras.filter(e => e.data && e.data.startsWith(currentMonthString)).reduce((acc, curr) => acc + (curr.valor || 0), 0);
 
   const handleCreateOccurrence = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -135,7 +152,6 @@ export default function DashboardModule() {
     .slice(0, 6);
 
   // 2. Consumo Financeiro por Categoria de Compras (Ao longo do mês)
-  const currentMonthDate = new Date();
   const financialByCategory = compras.reduce((acc, curr) => {
     // Assuming 'createdAt' or fallback
     const isThisMonth = !curr.createdAt || new Date(curr.createdAt).getMonth() === currentMonthDate.getMonth();
@@ -151,6 +167,19 @@ export default function DashboardModule() {
     valor: financialByCategory[cat]
   })).sort((a, b) => b.valor - a.valor);
 
+  // 3. Diárias por Função (Este mês)
+  const diariasThisMonthData = extras.filter(e => e.data && e.data.startsWith(currentMonthString));
+  const diariasByFuncao = diariasThisMonthData.reduce((acc, curr) => {
+    const funcao = curr.funcao || "Outros";
+    acc[funcao] = (acc[funcao] || 0) + (curr.valor || 0);
+    return acc;
+  }, {} as Record<string, number>);
+
+  const diariasChartData = Object.keys(diariasByFuncao).map(f => ({
+    name: f,
+    valor: diariasByFuncao[f]
+  })).sort((a, b) => b.valor - a.valor).slice(0, 6);
+
   return (
     <div className="space-y-8">
       <div className="flex flex-col gap-2">
@@ -163,7 +192,7 @@ export default function DashboardModule() {
         </p>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6">
         
         {/* Equipe Stats */}
         <div className="bg-[#0A0A0A] border border-white/10 rounded-2xl p-6 flex flex-col justify-between hover:border-indigo-500/50 transition-colors">
@@ -275,10 +304,42 @@ export default function DashboardModule() {
           </div>
         </div>
 
+        {/* Vinhos Stats */}
+        <div className="bg-[#0A0A0A] border border-white/10 rounded-2xl p-6 flex flex-col justify-between hover:border-violet-500/50 transition-colors">
+          <div className="flex items-start justify-between mb-8">
+            <div className="p-3 rounded-lg bg-violet-500/10 border border-violet-500/20 text-violet-400">
+              <Wine className="h-6 w-6" />
+            </div>
+            <span className="text-[10px] font-bold tracking-widest px-3 py-1 bg-violet-500/10 text-violet-400 rounded-full border border-violet-500/20 uppercase">
+              Adega
+            </span>
+          </div>
+          <div>
+            <div className="text-5xl font-bold text-white mb-2 tracking-tight">{pendingPedidosVinho}</div>
+            <p className="text-xs font-mono uppercase tracking-wider text-slate-500">Pedidos aguardando envio</p>
+          </div>
+        </div>
+
+        {/* Diárias Stats */}
+        <div className="bg-[#0A0A0A] border border-white/10 rounded-2xl p-6 flex flex-col justify-between hover:border-amber-500/50 transition-colors">
+          <div className="flex items-start justify-between mb-8">
+            <div className="p-3 rounded-lg bg-amber-500/10 border border-amber-500/20 text-amber-400">
+              <Briefcase className="h-6 w-6" />
+            </div>
+            <span className="text-[10px] font-bold tracking-widest px-3 py-1 bg-amber-500/10 text-amber-400 rounded-full border border-amber-500/20 uppercase">
+              Diárias
+            </span>
+          </div>
+          <div>
+            <div className="text-3xl font-bold text-white mb-2 tracking-tight whitespace-nowrap overflow-hidden text-ellipsis">R$ {totalDiariasMes.toFixed(2)}</div>
+            <p className="text-xs font-mono uppercase tracking-wider text-slate-500">Gasto neste mês</p>
+          </div>
+        </div>
+
       </div>
 
       {/* CHARTS SECTION */}
-      <div className="grid grid-cols-1 gap-6 mt-8">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-8">
         {/* Gráfico Ocorrências por Colaborador */}
         <div className="bg-[#0A0A0A] border border-white/10 rounded-2xl p-6 min-w-0 overflow-hidden">
           <h3 className="text-sm font-bold text-white tracking-widest uppercase mb-6 flex items-center gap-2">
@@ -303,6 +364,35 @@ export default function DashboardModule() {
             ) : (
               <div className="h-full flex items-center justify-center text-slate-500 text-xs font-mono uppercase tracking-widest">
                 Sem dados para exibir
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Gráfico Gasto com Diárias por Função */}
+        <div className="bg-[#0A0A0A] border border-white/10 rounded-2xl p-6 min-w-0 overflow-hidden">
+          <h3 className="text-sm font-bold text-white tracking-widest uppercase mb-6 flex items-center gap-2">
+            <Briefcase className="h-4 w-4 text-amber-500" />
+            Gastos Extras por Função (Mês Atual)
+          </h3>
+          <div className="h-[300px] w-full" style={{ minWidth: 0, minHeight: 0 }}>
+            {diariasChartData.length > 0 ? (
+              <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
+                <BarChart data={diariasChartData} margin={{ top: 5, right: 10, left: -20, bottom: 5 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#ffffff15" vertical={false} />
+                  <XAxis dataKey="name" stroke="#52525b" fontSize={11} tickLine={false} axisLine={false} />
+                  <YAxis stroke="#52525b" fontSize={11} tickLine={false} axisLine={false} allowDecimals={false} />
+                  <Tooltip 
+                    cursor={{ fill: '#ffffff05' }}
+                    contentStyle={{ backgroundColor: '#171717', borderColor: '#ffffff10', borderRadius: '8px', color: '#fff', fontSize: '12px' }}
+                    itemStyle={{ color: '#f59e0b' }}
+                  />
+                  <Bar dataKey="valor" fill="#f59e0b" radius={[4, 4, 0, 0]} maxBarSize={40} />
+                </BarChart>
+              </ResponsiveContainer>
+            ) : (
+              <div className="h-full flex items-center justify-center text-slate-500 text-xs font-mono uppercase tracking-widest">
+                Sem gastos registrados neste mês
               </div>
             )}
           </div>

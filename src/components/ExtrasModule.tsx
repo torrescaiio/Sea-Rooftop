@@ -80,7 +80,7 @@ export default function ExtrasModule() {
       });
       setShowAddModal(false);
     } catch (err: any) {
-      alert("Erro ao salvar extra: " + err.message);
+      alert("Erro ao salvar diária: " + err.message);
     }
   };
 
@@ -112,7 +112,7 @@ export default function ExtrasModule() {
     });
 
     if (filtered.length === 0) {
-      alert("Nenhum extra encontrado nesse período.");
+      alert("Nenhuma diária encontrada nesse período.");
       return;
     }
 
@@ -124,7 +124,7 @@ export default function ExtrasModule() {
     const doc = new jsPDF();
     
     doc.setFontSize(16);
-    doc.text("Relatório de Extras - Sea Rooftop", 14, 20);
+    doc.text("Relatório de Diárias - Sea Rooftop", 14, 20);
     
     doc.setFontSize(10);
     doc.setTextColor(100);
@@ -159,7 +159,7 @@ export default function ExtrasModule() {
     doc.setFont("helvetica", "bold");
     doc.text(`Total Gasto no Período: R$ ${totalGasto.toFixed(2)}`, 14, finalY + 10);
 
-    doc.save(`relatorio_extras_${reportStartDate}_a_${reportEndDate}.pdf`);
+    doc.save(`relatorio_diarias_${reportStartDate}_a_${reportEndDate}.pdf`);
     setShowReportModal(false);
   };
 
@@ -179,7 +179,7 @@ export default function ExtrasModule() {
         <div>
           <h1 className="text-2xl font-bold text-white tracking-tight flex items-center gap-2">
             <Briefcase className="h-6 w-6 text-amber-500" />
-            Extras da Semana
+            Diárias
           </h1>
           <p className="text-sm text-slate-400 mt-1">
             Controle de diárias, funções extras e pagamentos temporários.
@@ -199,7 +199,7 @@ export default function ExtrasModule() {
             className="inline-flex items-center gap-2 bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-600 hover:to-orange-700 text-white font-medium text-sm px-4 py-2.5 rounded-lg shadow-lg transition cursor-pointer"
           >
             <PlusCircle className="h-4 w-4" />
-            Adicionar Extra
+            Adicionar Diária
           </button>
         </div>
       </div>
@@ -286,7 +286,7 @@ export default function ExtrasModule() {
             <div className="px-6 py-4 border-b border-slate-800 flex justify-between items-center bg-slate-900/50">
               <h3 className="text-lg font-bold text-white flex items-center gap-2">
                 <Briefcase className="h-5 w-5 text-amber-500" />
-                Registrar Extra
+                Registrar Diária
               </h3>
               <button 
                 onClick={() => setShowAddModal(false)}
@@ -393,7 +393,7 @@ export default function ExtrasModule() {
                   type="submit"
                   className="px-5 py-2 bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-600 hover:to-orange-700 text-white rounded-lg text-sm font-medium shadow-md transition"
                 >
-                  Salvar Extra
+                  Salvar Diária
                 </button>
               </div>
             </form>
@@ -420,7 +420,7 @@ export default function ExtrasModule() {
             
             <div className="p-6 space-y-4">
               <p className="text-sm text-slate-400 mb-4">
-                Selecione o período para gerar o relatório consolidado de pagamentos extras.
+                Selecione o período para gerar o relatório consolidado de diárias.
               </p>
               
               <div>
