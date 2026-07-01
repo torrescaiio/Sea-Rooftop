@@ -15,7 +15,8 @@ export default function RelatoriosVendasModule() {
   const [fetchingDb, setFetchingDb] = useState(true);
 
   // Estados derivados para exibição
-  const [selectedGrupo, setSelectedGrupo] = useState<string>("Todos");
+  const [selectedGrupos, setSelectedGrupos] = useState<string[]>([]);
+  const [showGruposDropdown, setShowGruposDropdown] = useState(false);
   const [selectedGarcom, setSelectedGarcom] = useState<string>("Todos");
   const [gruposDisponiveis, setGruposDisponiveis] = useState<string[]>([]);
   const [garconsDisponiveis, setGarconsDisponiveis] = useState<string[]>([]);
@@ -32,7 +33,7 @@ export default function RelatoriosVendasModule() {
       setRegistrosDb(records);
       
       const grupos = Array.from(new Set(records.map(r => r.grupo || "Geral"))).sort();
-      setGruposDisponiveis(["Todos", ...grupos]);
+      setGruposDisponiveis(grupos);
 
       const garcons = Array.from(new Set(records.map(r => r.garcom || "Não Identificado"))).sort();
       setGarconsDisponiveis(["Todos", ...garcons]);
@@ -45,18 +46,18 @@ export default function RelatoriosVendasModule() {
 
   useEffect(() => {
     if (registrosDb.length > 0) {
-      processDbData(registrosDb, selectedGrupo, selectedGarcom);
+      processDbData(registrosDb, selectedGrupos, selectedGarcom);
     } else {
       setKpis(null);
       setVendas([]);
       setVendasPorGarcom([]);
     }
-  }, [registrosDb, selectedGrupo, selectedGarcom]);
+  }, [registrosDb, selectedGrupos, selectedGarcom]);
 
-  const processDbData = (records: VendaSoftcom[], grupoFiltro: string, garcomFiltro: string) => {
+  const processDbData = (records: VendaSoftcom[], gruposFiltro: string[], garcomFiltro: string) => {
     let filteredRecords = records;
-    if (grupoFiltro !== "Todos") {
-      filteredRecords = filteredRecords.filter(r => (r.grupo || "Geral") === grupoFiltro);
+    if (gruposFiltro.length > 0) {
+      filteredRecords = filteredRecords.filter(r => gruposFiltro.includes(r.grupo || "Geral"));
     }
     if (garcomFiltro !== "Todos") {
       filteredRecords = filteredRecords.filter(r => (r.garcom || "Não Identificado") === garcomFiltro);
@@ -345,17 +346,51 @@ export default function RelatoriosVendasModule() {
                 </select>
               </div>
 
-              <div className="flex items-center gap-2">
-                <span className="text-sm text-slate-400 font-medium">Grupo:</span>
-                <select 
-                  value={selectedGrupo} 
-                  onChange={(e) => setSelectedGrupo(e.target.value)}
-                  className="bg-slate-900 border border-slate-700 text-white rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-fuchsia-500"
-                >
-                  {gruposDisponiveis.map(grupo => (
-                    <option key={grupo} value={grupo}>{grupo}</option>
-                  ))}
-                </select>
+              <div className="flex items-center gap-2 relative">
+                <span className="text-sm text-slate-400 font-medium">Grupos:</span>
+                <div className="relative">
+                  <button 
+                    onClick={() => setShowGruposDropdown(!showGruposDropdown)}
+                    className="bg-slate-900 border border-slate-700 text-white rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-fuchsia-500 min-w-[160px] text-left flex justify-between items-center"
+                  >
+                    <span className="truncate">
+                      {selectedGrupos.length === 0 ? "Todos os Grupos" : `${selectedGrupos.length} selecionado(s)`}
+                    </span>
+                    <span className="ml-2 text-xs">▼</span>
+                  </button>
+                  
+                  {showGruposDropdown && (
+                    <div className="absolute top-full right-0 mt-1 w-64 bg-slate-800 border border-slate-700 rounded-lg shadow-xl z-50 max-h-64 overflow-y-auto">
+                      <div className="p-2 flex flex-col gap-1">
+                        <label className="flex items-center gap-2 px-2 py-1.5 hover:bg-slate-700 rounded cursor-pointer">
+                          <input 
+                            type="checkbox" 
+                            checked={selectedGrupos.length === 0}
+                            onChange={() => setSelectedGrupos([])}
+                            className="rounded border-slate-600 text-fuchsia-500 focus:ring-fuchsia-500 bg-slate-900"
+                          />
+                          <span className="text-sm text-white">Todos (Limpar Filtros)</span>
+                        </label>
+                        <div className="h-px bg-slate-700 my-1"></div>
+                        {gruposDisponiveis.map(grupo => (
+                          <label key={grupo} className="flex items-center gap-2 px-2 py-1.5 hover:bg-slate-700 rounded cursor-pointer">
+                            <input 
+                              type="checkbox" 
+                              checked={selectedGrupos.includes(grupo)}
+                              onChange={() => {
+                                setSelectedGrupos(prev => 
+                                  prev.includes(grupo) ? prev.filter(g => g !== grupo) : [...prev, grupo]
+                                );
+                              }}
+                              className="rounded border-slate-600 text-fuchsia-500 focus:ring-fuchsia-500 bg-slate-900"
+                            />
+                            <span className="text-sm text-white">{grupo}</span>
+                          </label>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
           </div>
@@ -411,8 +446,8 @@ export default function RelatoriosVendasModule() {
                 <BarChart3 className="h-4 w-4 text-fuchsia-400" />
                 Top 5 Itens Mais Vendidos (Qtd)
               </h3>
-              <p className="text-xs text-slate-500 mb-4 font-sans">
-                {selectedGrupo === "Todos" ? "Todos os grupos" : `Filtrado por: ${selectedGrupo}`}
+              <p className="text-xs text-slate-500 mb-4 font-sans truncate">
+                {selectedGrupos.length === 0 ? "Todos os grupos" : `Filtrado por: ${selectedGrupos.join(', ')}`}
               </p>
               <div className="h-64">
                 <ResponsiveContainer width="100%" height="100%">
@@ -440,8 +475,8 @@ export default function RelatoriosVendasModule() {
                 <Award className="h-4 w-4 text-amber-400" />
                 Venda por Garçom (R$)
               </h3>
-              <p className="text-xs text-slate-500 mb-4 font-sans">
-                {selectedGrupo === "Todos" ? "Todos os grupos" : `Filtrado por: ${selectedGrupo}`}
+              <p className="text-xs text-slate-500 mb-4 font-sans truncate">
+                {selectedGrupos.length === 0 ? "Todos os grupos" : `Filtrado por: ${selectedGrupos.join(', ')}`}
               </p>
               <div className="h-64">
                 <ResponsiveContainer width="100%" height="100%">
