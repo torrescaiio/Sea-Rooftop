@@ -78,6 +78,20 @@ export default function ExtrasModule() {
         valor: Number(valor),
         motivo: motivo.trim()
       });
+
+      if (contato.trim()) {
+        try {
+          await appDb.add("agenda_contatos", {
+            nome: nome.trim(),
+            categoria: "Extras",
+            telefone: contato.trim(),
+            detalhes: `Cadastrado automaticamente (Diárias). Função: ${funcao.trim()}`
+          });
+        } catch (contactErr) {
+          console.warn("Erro ao salvar contato automático:", contactErr);
+        }
+      }
+
       setShowAddModal(false);
     } catch (err: any) {
       alert("Erro ao salvar diária: " + err.message);
@@ -221,8 +235,8 @@ export default function ExtrasModule() {
       </div>
 
       {/* LISTA */}
-      <div className="bg-slate-900/50 border border-slate-800 rounded-xl overflow-hidden flex-1">
-        <div className="overflow-x-auto">
+      <div className="bg-slate-900/50 border border-slate-800 rounded-xl flex-1 flex flex-col min-h-0">
+        <div className="overflow-auto flex-1">
           <table className="w-full text-left border-collapse">
             <thead>
               <tr className="bg-slate-900/80 border-b border-slate-800 text-xs uppercase tracking-wider text-slate-400 font-mono">

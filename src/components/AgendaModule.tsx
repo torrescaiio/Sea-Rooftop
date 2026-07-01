@@ -116,6 +116,19 @@ export default function AgendaModule() {
         await appDb.update("agenda_eventos", editEventId, dataPayload);
       } else {
         await appDb.add("agenda_eventos", dataPayload);
+
+        try {
+          if (artistaNome.trim()) {
+            await appDb.add("agenda_contatos", {
+              nome: artistaNome.trim(),
+              categoria: "Músicos",
+              telefone: "",
+              detalhes: `Cadastrado automaticamente (Agenda). Chave PIX: ${chavePix.trim()}`
+            });
+          }
+        } catch (contactErr) {
+          console.warn("Erro ao salvar contato automático:", contactErr);
+        }
       }
       appDb.dispatchUpdate();
 
