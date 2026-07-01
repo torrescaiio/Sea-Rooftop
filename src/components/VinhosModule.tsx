@@ -148,6 +148,14 @@ export default function VinhosModule() {
     }
   };
 
+  const handleUpdatePedidoStatus = async (id: string, newStatus: string) => {
+    try {
+      await appDb.update("pedidos_vinho", id, { status: newStatus });
+    } catch (err: any) {
+      alert("Erro ao atualizar status: " + err.message);
+    }
+  };
+
   const iniciarNovaContagem = () => {
     // Inicializa todos com quantidade 0
     const itens = vinhosOrdenados.map(v => ({ vinhoId: v.id, quantidade: 0 }));
@@ -200,24 +208,51 @@ export default function VinhosModule() {
   };
 
   const getVendasPorVinho = () => {
-    if (contagens.length < 2) return [];
-    
     // Sort contagens by date descending
     const sortedContagens = [...contagens].sort((a, b) => new Date(b.dataContagem).getTime() - new Date(a.dataContagem).getTime());
     
-    const latest = sortedContagens[0];
-    const previous = sortedContagens[1];
+    const latest = sortedContagens.length > 0 ? sortedContagens[0] : null;
+    const previous = sortedContagens.length > 1 ? sortedContagens[1] : null;
+
+    // Pedidos recebidos após a última contagem (ou todos se não houver contagem)
+    const pedidosApósLatest = pedidos.filter(p => {
+      if (p.status !== 'Recebido') return false;
+      if (!latest) return true;
+      return new Date(p.dataPedido) >= new Date(latest.dataContagem);
+    });
+    
+    // Pedidos recebidos entre a penúltima e a última contagem
+    const pedidosEntreContagens = previous && latest
+      ? pedidos.filter(p => p.status === 'Recebido' && new Date(p.dataPedido) >= new Date(previous.dataContagem) && new Date(p.dataPedido) < new Date(latest.dataContagem))
+      : [];
     
     const relatorio = vinhosOrdenados.map(v => {
-      const qLatest = latest.itens.find(i => i.vinhoId === v.id)?.quantidade || 0;
-      const qPrev = previous.itens.find(i => i.vinhoId === v.id)?.quantidade || 0;
-      const vendidas = Math.max(0, qPrev - qLatest);
+      const qLatest = latest ? (latest.itens.find(i => i.vinhoId === v.id)?.quantidade || 0) : 0;
+      
+      // Calculate added stock from orders received AFTER the latest count
+      const entradasPosLatest = pedidosApósLatest.reduce((acc, p) => {
+        const item = p.itens.find(i => i.vinhoId === v.id);
+        return acc + (item ? item.quantidade : 0);
+      }, 0);
+
+      const estoqueAtualReal = qLatest + entradasPosLatest;
+
+      let vendidas = 0;
+      if (previous && latest) {
+        const qPrev = previous.itens.find(i => i.vinhoId === v.id)?.quantidade || 0;
+        const entradasEntre = pedidosEntreContagens.reduce((acc, p) => {
+          const item = p.itens.find(i => i.vinhoId === v.id);
+          return acc + (item ? item.quantidade : 0);
+        }, 0);
+        
+        vendidas = Math.max(0, qPrev + entradasEntre - qLatest);
+      }
       
       return {
         vinho: v,
-        estoqueAtual: qLatest,
+        estoqueAtual: estoqueAtualReal,
         vendidas,
-        receitaEstimada: vendidas * (v.precoCusto || 0) // We only have precoCusto, maybe they want to see revenue based on cost? Or just volume.
+        receitaEstimada: vendidas * (v.precoCusto || 0)
       };
     });
     
@@ -479,9 +514,19 @@ export default function VinhosModule() {
                       </h3>
                       <p className="text-xs text-slate-400 mt-1">{p.itens.length} rótulos solicitados</p>
                     </div>
-                    <span className="inline-flex items-center px-2.5 py-1 rounded-full text-[10px] font-bold font-mono uppercase border border-amber-500/20 bg-amber-500/10 text-amber-400">
-                      {p.status}
-                    </span>
+                    <select
+                      value={p.status}
+                      onChange={(e) => handleUpdatePedidoStatus(p.id, e.target.value)}
+                      className={`text-xs font-bold font-mono uppercase rounded-lg px-2 py-1 outline-none border focus:ring-1 focus:ring-amber-500 transition-colors ${
+                        p.status === 'Recebido' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : 
+                        p.status === 'Enviado' ? 'bg-blue-500/10 text-blue-400 border-blue-500/20' : 
+                        'bg-amber-500/10 text-amber-400 border-amber-500/20'
+                      }`}
+                    >
+                      <option value="Pendente" className="bg-slate-900 text-amber-400">Pendente</option>
+                      <option value="Enviado" className="bg-slate-900 text-blue-400">Enviado</option>
+                      <option value="Recebido" className="bg-slate-900 text-emerald-400">Recebido</option>
+                    </select>
                   </div>
                   
                   <div className="text-xl font-mono text-white">
