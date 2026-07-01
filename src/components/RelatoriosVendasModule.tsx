@@ -16,7 +16,9 @@ export default function RelatoriosVendasModule() {
 
   // Estados derivados para exibição
   const [selectedGrupo, setSelectedGrupo] = useState<string>("Todos");
+  const [selectedGarcom, setSelectedGarcom] = useState<string>("Todos");
   const [gruposDisponiveis, setGruposDisponiveis] = useState<string[]>([]);
+  const [garconsDisponiveis, setGarconsDisponiveis] = useState<string[]>([]);
   
   const [vendas, setVendas] = useState<any[]>([]);
   const [vendasPorGarcom, setVendasPorGarcom] = useState<any[]>([]);
@@ -32,6 +34,9 @@ export default function RelatoriosVendasModule() {
       const grupos = Array.from(new Set(records.map(r => r.grupo || "Geral"))).sort();
       setGruposDisponiveis(["Todos", ...grupos]);
 
+      const garcons = Array.from(new Set(records.map(r => r.garcom || "Não Identificado"))).sort();
+      setGarconsDisponiveis(["Todos", ...garcons]);
+
       setFetchingDb(false);
     });
 
@@ -40,18 +45,21 @@ export default function RelatoriosVendasModule() {
 
   useEffect(() => {
     if (registrosDb.length > 0) {
-      processDbData(registrosDb, selectedGrupo);
+      processDbData(registrosDb, selectedGrupo, selectedGarcom);
     } else {
       setKpis(null);
       setVendas([]);
       setVendasPorGarcom([]);
     }
-  }, [registrosDb, selectedGrupo]);
+  }, [registrosDb, selectedGrupo, selectedGarcom]);
 
-  const processDbData = (records: VendaSoftcom[], grupoFiltro: string) => {
+  const processDbData = (records: VendaSoftcom[], grupoFiltro: string, garcomFiltro: string) => {
     let filteredRecords = records;
     if (grupoFiltro !== "Todos") {
-      filteredRecords = records.filter(r => (r.grupo || "Geral") === grupoFiltro);
+      filteredRecords = filteredRecords.filter(r => (r.grupo || "Geral") === grupoFiltro);
+    }
+    if (garcomFiltro !== "Todos") {
+      filteredRecords = filteredRecords.filter(r => (r.garcom || "Não Identificado") === garcomFiltro);
     }
 
     let totalVendas = 0;
@@ -59,7 +67,7 @@ export default function RelatoriosVendasModule() {
     
     // Agrupar itens duplicados
     const groupedItems: Record<string, any> = {};
-    const garcomStats: Record<string, number> = {};
+    const garcomStats: Record<string, { valor: number; quantidade: number; categorias: Record<string, number> }> = {};
 
     filteredRecords.forEach(item => {
       totalVendas += item.valorVenda;
@@ -79,8 +87,18 @@ export default function RelatoriosVendasModule() {
       }
 
       const garcom = item.garcom || "Não Identificado";
-      if (!garcomStats[garcom]) { garcomStats[garcom] = 0; }
-      garcomStats[garcom] += item.valorVenda;
+      const grupo = item.grupo || "Geral";
+      
+      if (!garcomStats[garcom]) { 
+        garcomStats[garcom] = { valor: 0, quantidade: 0, categorias: {} }; 
+      }
+      garcomStats[garcom].valor += item.valorVenda;
+      garcomStats[garcom].quantidade += item.quantidade;
+      
+      if (!garcomStats[garcom].categorias[grupo]) {
+        garcomStats[garcom].categorias[grupo] = 0;
+      }
+      garcomStats[garcom].categorias[grupo] += item.quantidade;
     });
 
     const ticketMedio = totalItens > 0 ? totalVendas / totalItens : 0;
@@ -88,7 +106,9 @@ export default function RelatoriosVendasModule() {
     
     const garcomArray = Object.keys(garcomStats).map(key => ({
       nome: key,
-      valor: garcomStats[key]
+      valor: garcomStats[key].valor,
+      quantidade: garcomStats[key].quantidade,
+      categorias: garcomStats[key].categorias
     })).sort((a, b) => b.valor - a.valor);
 
     setVendas(sortedVendas);
@@ -308,20 +328,35 @@ export default function RelatoriosVendasModule() {
       {kpis && registrosDb.length > 0 && !loading && (
         <div className="space-y-6 animate-in slide-in-from-bottom-4 duration-500">
           
-          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 border-b border-slate-800 pb-4">
+          <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4 border-b border-slate-800 pb-4">
             <h2 className="text-xl font-bold text-white tracking-tight">Análise Consolidada</h2>
             
-            <div className="flex items-center gap-2 w-full sm:w-auto">
-              <span className="text-sm text-slate-400 font-medium">Filtrar por Grupo:</span>
-              <select 
-                value={selectedGrupo} 
-                onChange={(e) => setSelectedGrupo(e.target.value)}
-                className="bg-slate-900 border border-slate-700 text-white rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-fuchsia-500"
-              >
-                {gruposDisponiveis.map(grupo => (
-                  <option key={grupo} value={grupo}>{grupo}</option>
-                ))}
-              </select>
+            <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4 w-full lg:w-auto">
+              <div className="flex items-center gap-2">
+                <span className="text-sm text-slate-400 font-medium">Garçom:</span>
+                <select 
+                  value={selectedGarcom} 
+                  onChange={(e) => setSelectedGarcom(e.target.value)}
+                  className="bg-slate-900 border border-slate-700 text-white rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-fuchsia-500"
+                >
+                  {garconsDisponiveis.map(garcom => (
+                    <option key={garcom} value={garcom}>{garcom}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <span className="text-sm text-slate-400 font-medium">Grupo:</span>
+                <select 
+                  value={selectedGrupo} 
+                  onChange={(e) => setSelectedGrupo(e.target.value)}
+                  className="bg-slate-900 border border-slate-700 text-white rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-fuchsia-500"
+                >
+                  {gruposDisponiveis.map(grupo => (
+                    <option key={grupo} value={grupo}>{grupo}</option>
+                  ))}
+                </select>
+              </div>
             </div>
           </div>
           
@@ -469,6 +504,46 @@ export default function RelatoriosVendasModule() {
                   ))}
                 </tbody>
               </table>
+            </div>
+          </div>
+
+          {/* DESEMPENHO INDIVIDUAL DOS GARÇONS */}
+          <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden mt-6">
+            <div className="px-6 py-4 border-b border-slate-800 flex justify-between items-center bg-slate-900/50">
+              <h3 className="text-sm font-semibold text-slate-200 uppercase tracking-wider font-mono">
+                Desempenho Individual dos Garçons
+              </h3>
+            </div>
+            <div className="p-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+                {vendasPorGarcom.map((garcom, idx) => (
+                  <div key={idx} className="bg-slate-950/50 border border-slate-800/80 rounded-lg p-5 hover:border-slate-700 transition">
+                    <div className="flex justify-between items-start mb-4">
+                      <div>
+                        <h4 className="font-bold text-white text-lg">{garcom.nome}</h4>
+                        <p className="text-sm text-slate-400">Total vendido: R$ {garcom.valor.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
+                      </div>
+                      <div className="h-10 w-10 bg-amber-500/10 rounded-full flex items-center justify-center text-amber-500">
+                        <Award className="h-5 w-5" />
+                      </div>
+                    </div>
+                    
+                    <div className="mt-4">
+                      <p className="text-xs text-slate-500 font-mono uppercase tracking-wider mb-2">
+                        Itens Vendidos por Categoria
+                      </p>
+                      <div className="space-y-2">
+                        {Object.entries(garcom.categorias).sort((a: any, b: any) => b[1] - a[1]).map(([cat, qtd]: [string, any], cIdx) => (
+                          <div key={cIdx} className="flex justify-between items-center text-sm">
+                            <span className="text-slate-300">{cat}</span>
+                            <span className="text-slate-400 font-mono bg-slate-800/50 px-2 py-0.5 rounded text-xs">{qtd} un</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
             </div>
           </div>
           
