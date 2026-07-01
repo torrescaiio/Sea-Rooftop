@@ -27,6 +27,12 @@ export default function VinhosModule() {
   // Loading
   const [loading, setLoading] = useState(true);
 
+  const vinhosOrdenados = [...vinhos].sort((a, b) => {
+    const dateA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+    const dateB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+    return dateA - dateB;
+  });
+
   // Modal States
   const [showAddVinho, setShowAddVinho] = useState(false);
   const [editVinhoId, setEditVinhoId] = useState<string | null>(null);
@@ -144,7 +150,7 @@ export default function VinhosModule() {
 
   const iniciarNovaContagem = () => {
     // Inicializa todos com quantidade 0
-    const itens = vinhos.map(v => ({ vinhoId: v.id, quantidade: 0 }));
+    const itens = vinhosOrdenados.map(v => ({ vinhoId: v.id, quantidade: 0 }));
     setContagemItens(itens);
     setShowNovaContagem(true);
   };
@@ -202,7 +208,7 @@ export default function VinhosModule() {
     const latest = sortedContagens[0];
     const previous = sortedContagens[1];
     
-    const relatorio = vinhos.map(v => {
+    const relatorio = vinhosOrdenados.map(v => {
       const qLatest = latest.itens.find(i => i.vinhoId === v.id)?.quantidade || 0;
       const qPrev = previous.itens.find(i => i.vinhoId === v.id)?.quantidade || 0;
       const vendidas = Math.max(0, qPrev - qLatest);
@@ -220,7 +226,7 @@ export default function VinhosModule() {
 
   const iniciarNovoPedido = () => {
     // Inicializa todos com quantidade 0
-    const itens = vinhos.map(v => ({ vinhoId: v.id, quantidade: 0 }));
+    const itens = vinhosOrdenados.map(v => ({ vinhoId: v.id, quantidade: 0 }));
     setPedidoItens(itens);
     setShowNovoPedido(true);
   };
@@ -391,14 +397,14 @@ export default function VinhosModule() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-800/50 text-slate-300 text-sm">
-                  {vinhos.length === 0 ? (
+                  {vinhosOrdenados.length === 0 ? (
                     <tr>
                       <td colSpan={5} className="p-8 text-center text-slate-500 font-mono text-xs">
                         NENHUM VINHO CADASTRADO
                       </td>
                     </tr>
                   ) : (
-                    vinhos.map((v) => (
+                    vinhosOrdenados.map((v) => (
                       <tr key={v.id} className="hover:bg-slate-800/30 transition">
                         <td className="p-4">
                           <p className="font-semibold text-slate-100">{v.nome}</p>
@@ -763,7 +769,7 @@ export default function VinhosModule() {
               </p>
               
               <div className="space-y-3">
-                {vinhos.map(v => {
+                {vinhosOrdenados.map(v => {
                   const qtd = pedidoItens.find(i => i.vinhoId === v.id)?.quantidade || 0;
                   return (
                     <div key={v.id} className={`flex items-center justify-between p-3 rounded-lg border transition ${qtd > 0 ? "bg-fuchsia-500/10 border-fuchsia-500/30" : "bg-slate-950 border-slate-800"}`}>
@@ -844,7 +850,7 @@ export default function VinhosModule() {
               </p>
               
               <div className="space-y-3">
-                {vinhos.map(v => {
+                {vinhosOrdenados.map(v => {
                   const qtd = contagemItens.find(i => i.vinhoId === v.id)?.quantidade || 0;
                   return (
                     <div key={v.id} className="flex items-center justify-between p-3 rounded-lg border bg-slate-950 border-slate-800 transition focus-within:border-emerald-500/50">
