@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { appDb } from "../firebase";
-import { Vinho, PedidoVinho } from "../types";
+import { Vinho, PedidoVinho, ContagemEstoque } from "../types";
 import { 
   Wine, 
   PlusCircle, 
@@ -17,11 +17,12 @@ import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 
 export default function VinhosModule() {
-  const [activeTab, setActiveTab] = useState<"carta" | "pedidos">("carta");
+  const [activeTab, setActiveTab] = useState<"carta" | "pedidos" | "estoque">("carta");
   
   // Data States
   const [vinhos, setVinhos] = useState<Vinho[]>([]);
   const [pedidos, setPedidos] = useState<PedidoVinho[]>([]);
+  const [contagens, setContagens] = useState<ContagemEstoque[]>([]);
   
   // Loading
   const [loading, setLoading] = useState(true);
@@ -30,6 +31,7 @@ export default function VinhosModule() {
   const [showAddVinho, setShowAddVinho] = useState(false);
   const [editVinhoId, setEditVinhoId] = useState<string | null>(null);
   const [showNovoPedido, setShowNovoPedido] = useState(false);
+  const [showNovaContagem, setShowNovaContagem] = useState(false);
   
   // Vinho Form
   const [nome, setNome] = useState("");
@@ -43,6 +45,9 @@ export default function VinhosModule() {
   // Pedido Form
   const [pedidoItens, setPedidoItens] = useState<{vinhoId: string; quantidade: number}[]>([]);
 
+  // Contagem Form
+  const [contagemItens, setContagemItens] = useState<{vinhoId: string; quantidade: number}[]>([]);
+
   useEffect(() => {
     const unsubVinhos = appDb.subscribe("vinhos", (data) => {
       setVinhos(data as Vinho[]);
@@ -53,9 +58,14 @@ export default function VinhosModule() {
       setPedidos(data as PedidoVinho[]);
     });
 
+    const unsubContagens = appDb.subscribe("contagem_estoque", (data) => {
+      setContagens(data as ContagemEstoque[]);
+    });
+
     return () => {
       unsubVinhos();
       unsubPedidos();
+      unsubContagens();
     };
   }, []);
 
@@ -130,6 +140,82 @@ export default function VinhosModule() {
         alert("Erro ao excluir pedido: " + err.message);
       }
     }
+  };
+
+  const iniciarNovaContagem = () => {
+    // Inicializa todos com quantidade 0
+    const itens = vinhos.map(v => ({ vinhoId: v.id, quantidade: 0 }));
+    setContagemItens(itens);
+    setShowNovaContagem(true);
+  };
+
+  const handleQuantidadeContagemChange = (vinhoId: string, delta: number) => {
+    setContagemItens(prev => prev.map(item => {
+      if (item.vinhoId === vinhoId) {
+        return { ...item, quantidade: Math.max(0, item.quantidade + delta) };
+      }
+      return item;
+    }));
+  };
+
+  const handleSetQuantidadeContagem = (vinhoId: string, valor: string) => {
+    const qtd = parseInt(valor, 10);
+    if (isNaN(qtd) || qtd < 0) return;
+    setContagemItens(prev => prev.map(item => {
+      if (item.vinhoId === vinhoId) {
+        return { ...item, quantidade: qtd };
+      }
+      return item;
+    }));
+  };
+
+  const handleSalvarContagem = async () => {
+    // Save all items even if 0, so we have a full inventory picture
+    try {
+      await appDb.add("contagem_estoque", {
+        dataContagem: new Date().toISOString().split("T")[0],
+        itens: contagemItens
+      });
+      setShowNovaContagem(false);
+      setActiveTab("estoque");
+    } catch (err: any) {
+      alert("Erro ao salvar contagem: " + err.message);
+    }
+  };
+
+  const handleDeleteContagem = async (id: string) => {
+    if (confirm("Tem certeza que deseja excluir esta contagem de estoque?")) {
+      try {
+        await appDb.delete("contagem_estoque", id);
+      } catch (err: any) {
+        alert("Erro ao excluir contagem: " + err.message);
+      }
+    }
+  };
+
+  const getVendasPorVinho = () => {
+    if (contagens.length < 2) return [];
+    
+    // Sort contagens by date descending
+    const sortedContagens = [...contagens].sort((a, b) => new Date(b.dataContagem).getTime() - new Date(a.dataContagem).getTime());
+    
+    const latest = sortedContagens[0];
+    const previous = sortedContagens[1];
+    
+    const relatorio = vinhos.map(v => {
+      const qLatest = latest.itens.find(i => i.vinhoId === v.id)?.quantidade || 0;
+      const qPrev = previous.itens.find(i => i.vinhoId === v.id)?.quantidade || 0;
+      const vendidas = Math.max(0, qPrev - qLatest);
+      
+      return {
+        vinho: v,
+        estoqueAtual: qLatest,
+        vendidas,
+        receitaEstimada: vendidas * (v.precoCusto || 0) // We only have precoCusto, maybe they want to see revenue based on cost? Or just volume.
+      };
+    });
+    
+    return relatorio.sort((a, b) => b.vendidas - a.vendidas); // sort by sales volume
   };
 
   const iniciarNovoPedido = () => {
@@ -258,6 +344,16 @@ export default function VinhosModule() {
             }`}
           >
             Pedidos
+          </button>
+          <button
+            onClick={() => setActiveTab("estoque")}
+            className={`px-4 py-2 text-sm font-medium rounded-md transition ${
+              activeTab === "estoque" 
+                ? "bg-slate-800 text-white shadow" 
+                : "text-slate-400 hover:text-slate-200"
+            }`}
+          >
+            Estoque & Vendas
           </button>
         </div>
       </div>
@@ -405,6 +501,101 @@ export default function VinhosModule() {
                 </div>
               ))
             )}
+          </div>
+        </div>
+      )}
+
+      {activeTab === "estoque" && (
+        <div className="flex-1 flex flex-col space-y-6">
+          <div className="flex justify-between items-center">
+            <h2 className="text-lg font-bold text-white tracking-tight">Relatório de Estoque e Vendas</h2>
+            <button
+              onClick={iniciarNovaContagem}
+              disabled={vinhos.length === 0}
+              className="inline-flex items-center gap-2 bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 text-white font-medium text-sm px-4 py-2.5 rounded-lg shadow-lg transition cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <PlusCircle className="h-4 w-4" />
+              Nova Contagem
+            </button>
+          </div>
+
+          <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden p-5">
+            <h3 className="text-slate-200 font-semibold mb-4 text-sm uppercase tracking-wider font-mono">
+              Análise de Vendas (Últimas 2 Contagens)
+            </h3>
+            {contagens.length < 2 ? (
+              <p className="text-slate-500 text-sm italic">
+                {contagens.length === 0 
+                  ? "Nenhuma contagem de estoque registrada. Faça a primeira contagem." 
+                  : "Apenas uma contagem registrada. É necessário ter pelo menos duas para calcular vendas por diferença."}
+              </p>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-left border-collapse">
+                  <thead>
+                    <tr className="bg-slate-900/80 border-b border-slate-800 text-xs uppercase tracking-wider text-slate-400 font-mono">
+                      <th className="p-3 font-semibold">Vinho</th>
+                      <th className="p-3 font-semibold">Estoque Atual</th>
+                      <th className="p-3 font-semibold text-emerald-400">Qtd. Vendida</th>
+                      <th className="p-3 font-semibold text-emerald-400">Volume Bruto Aprox.</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-800/50 text-slate-300 text-sm">
+                    {getVendasPorVinho().map((rel, idx) => (
+                      <tr key={rel.vinho.id} className="hover:bg-slate-800/30 transition">
+                        <td className="p-3">
+                          <p className="font-semibold text-slate-200">{rel.vinho.nome}</p>
+                          <p className="text-xs text-slate-500">{rel.vinho.produtor} • {rel.vinho.tipo}</p>
+                        </td>
+                        <td className="p-3 font-mono font-bold text-slate-300">
+                          {rel.estoqueAtual}
+                        </td>
+                        <td className="p-3 font-mono font-bold text-emerald-400">
+                          {rel.vendidas}
+                        </td>
+                        <td className="p-3 font-mono text-emerald-400">
+                          R$ {rel.receitaEstimada.toFixed(2)}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+          
+          <div>
+            <h3 className="text-slate-200 font-semibold mb-4 text-sm uppercase tracking-wider font-mono">
+              Histórico de Contagens
+            </h3>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {contagens.length === 0 ? (
+                <p className="text-slate-500 text-sm col-span-full">Nenhuma contagem no histórico.</p>
+              ) : (
+                [...contagens].sort((a, b) => new Date(b.dataContagem).getTime() - new Date(a.dataContagem).getTime()).map(c => (
+                  <div key={c.id} className="bg-slate-900 border border-slate-800 p-4 rounded-xl flex flex-col justify-between">
+                    <div>
+                      <p className="text-slate-300 font-bold mb-1">
+                        Contagem: {c.dataContagem.split("-").reverse().join("/")}
+                      </p>
+                      <p className="text-slate-500 text-xs">
+                        Rótulos contados: {c.itens.filter(i => i.quantidade > 0).length}
+                      </p>
+                      <p className="text-slate-500 text-xs">
+                        Total garrafas: {c.itens.reduce((acc, curr) => acc + curr.quantidade, 0)}
+                      </p>
+                    </div>
+                    <button
+                      onClick={() => handleDeleteContagem(c.id)}
+                      className="mt-4 bg-slate-800/50 hover:bg-slate-800 text-rose-400 hover:text-rose-300 text-xs py-2 px-3 rounded font-medium flex items-center justify-center transition border border-slate-800/50 hover:border-rose-900"
+                    >
+                      <Trash2 className="h-3.5 w-3.5 mr-1" />
+                      Excluir Contagem
+                    </button>
+                  </div>
+                ))
+              )}
+            </div>
           </div>
         </div>
       )}
@@ -623,6 +814,88 @@ export default function VinhosModule() {
                 >
                   <Check className="h-4 w-4" />
                   Concluir Pedido e Gerar PDF
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL NOVA CONTAGEM */}
+      {showNovaContagem && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
+          <div className="w-full max-w-2xl bg-slate-900 border border-slate-800 rounded-2xl shadow-xl overflow-hidden flex flex-col max-h-[90vh] animate-in zoom-in-95 duration-150">
+            <div className="px-6 py-4 border-b border-slate-800 flex justify-between items-center bg-slate-900/50 shrink-0">
+              <h3 className="text-lg font-bold text-white flex items-center gap-2">
+                <PlusCircle className="h-5 w-5 text-emerald-400" />
+                Registrar Contagem Semanal (Estoque)
+              </h3>
+              <button 
+                onClick={() => setShowNovaContagem(false)}
+                className="p-1.5 hover:bg-slate-800 text-slate-400 hover:text-white rounded-lg"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            
+            <div className="p-6 overflow-y-auto flex-1 space-y-4">
+              <p className="text-sm text-slate-400 mb-4">
+                Insira a quantidade atual de garrafas físicas para cada rótulo.
+              </p>
+              
+              <div className="space-y-3">
+                {vinhos.map(v => {
+                  const qtd = contagemItens.find(i => i.vinhoId === v.id)?.quantidade || 0;
+                  return (
+                    <div key={v.id} className="flex items-center justify-between p-3 rounded-lg border bg-slate-950 border-slate-800 transition focus-within:border-emerald-500/50">
+                      <div className="flex-1 pr-4">
+                        <p className="text-slate-200 font-semibold text-sm">{v.nome}</p>
+                        <p className="text-slate-500 text-xs mt-0.5">{v.produtor} • {v.tipo}</p>
+                      </div>
+                      <div className="flex items-center gap-3 bg-slate-900 p-1.5 rounded-lg border border-slate-700">
+                        <button
+                          onClick={() => handleQuantidadeContagemChange(v.id, -1)}
+                          className="h-8 w-8 flex items-center justify-center rounded-md bg-slate-800 text-slate-300 hover:text-white hover:bg-slate-700 active:scale-95 transition"
+                        >
+                          -
+                        </button>
+                        <input
+                          type="number"
+                          min="0"
+                          value={qtd}
+                          onChange={(e) => handleSetQuantidadeContagem(v.id, e.target.value)}
+                          className="w-14 text-center font-mono font-bold text-slate-100 bg-transparent border-none focus:outline-none focus:ring-0 text-sm"
+                        />
+                        <button
+                          onClick={() => handleQuantidadeContagemChange(v.id, 1)}
+                          className="h-8 w-8 flex items-center justify-center rounded-md bg-slate-800 text-slate-300 hover:text-white hover:bg-slate-700 active:scale-95 transition"
+                        >
+                          +
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div className="p-6 border-t border-slate-800 bg-slate-900/80 shrink-0 flex items-center justify-between">
+              <div className="text-slate-300 text-sm font-mono">
+                Total de garrafas: <span className="text-white font-bold">{contagemItens.reduce((acc, curr) => acc + curr.quantidade, 0)}</span>
+              </div>
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setShowNovaContagem(false)}
+                  className="px-4 py-2 text-sm text-slate-300 hover:text-white"
+                >
+                  Cancelar
+                </button>
+                <button
+                  onClick={handleSalvarContagem}
+                  className="px-5 py-2 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white rounded-lg text-sm font-medium shadow-md transition flex items-center gap-2"
+                >
+                  <Check className="h-4 w-4" />
+                  Salvar Contagem
                 </button>
               </div>
             </div>

@@ -106,6 +106,13 @@ export interface Vinho {
   createdAt: string;
 }
 
+export interface ContagemEstoque {
+  id: string;
+  dataContagem: string; // YYYY-MM-DD
+  itens: { vinhoId: string; quantidade: number }[];
+  createdAt: string;
+}
+
 export interface PedidoVinho {
   id: string;
   dataPedido: string; // YYYY-MM-DD
