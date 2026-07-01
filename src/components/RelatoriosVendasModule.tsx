@@ -7,6 +7,7 @@ import { VendaSoftcom } from "../types";
 
 export default function RelatoriosVendasModule() {
   const [loading, setLoading] = useState(false);
+  const [loadingMsg, setLoadingMsg] = useState("");
   const [error, setError] = useState<string | null>(null);
   
   // Dados do Firebase
@@ -163,6 +164,7 @@ export default function RelatoriosVendasModule() {
     if (!file) return;
 
     setLoading(true);
+    setLoadingMsg("Processando e gravando dados...");
     setError(null);
 
     const isExcel = file.name.endsWith(".xlsx") || file.name.endsWith(".csv");
@@ -178,6 +180,7 @@ export default function RelatoriosVendasModule() {
   const handleClearData = async () => {
     if (confirm("Tem certeza que deseja apagar todos os dados de vendas armazenados? Esta ação não pode ser desfeita.")) {
       setLoading(true);
+      setLoadingMsg("Limpando base de dados...");
       try {
         const chunkSize = 50;
         for (let i = 0; i < registrosDb.length; i += chunkSize) {
@@ -210,28 +213,47 @@ export default function RelatoriosVendasModule() {
             Faça upload do seu relatório de vendas para calcular KPIs e comissões automaticamente. Os dados ficam salvos para análises.
           </p>
         </div>
-        {registrosDb.length > 0 && (
-          <button 
-            onClick={handleClearData}
-            disabled={loading}
-            className="px-4 py-2 bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/20 rounded-lg text-sm font-medium text-rose-400 transition flex items-center gap-2 disabled:opacity-50"
-          >
-            <Trash2 className="h-4 w-4" />
-            Limpar Base de Dados
-          </button>
-        )}
+        <div className="flex items-center gap-3">
+          {registrosDb.length > 0 && (
+            <button 
+              onClick={() => fileInputRef.current?.click()}
+              disabled={loading}
+              className="px-4 py-2 bg-fuchsia-600 hover:bg-fuchsia-500 rounded-lg text-sm font-medium text-white transition flex items-center gap-2 disabled:opacity-50"
+            >
+              <UploadCloud className="h-4 w-4" />
+              Adicionar Planilha
+            </button>
+          )}
+          {registrosDb.length > 0 && (
+            <button 
+              onClick={handleClearData}
+              disabled={loading}
+              className="px-4 py-2 bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/20 rounded-lg text-sm font-medium text-rose-400 transition flex items-center gap-2 disabled:opacity-50"
+            >
+              <Trash2 className="h-4 w-4" />
+              Limpar Base de Dados
+            </button>
+          )}
+        </div>
       </div>
+
+      <input 
+        type="file" 
+        accept=".xlsx, .csv" 
+        className="hidden"
+        onChange={handleFileUpload}
+        ref={fileInputRef}
+        disabled={loading}
+      />
 
       {/* UPLOAD AREA */}
       {registrosDb.length === 0 && (
         <div className="bg-slate-900 border border-slate-800 rounded-2xl p-8 flex flex-col items-center justify-center border-dashed relative">
-          <input 
-            type="file" 
-            accept=".xlsx, .csv" 
-            className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-            onChange={handleFileUpload}
-            ref={fileInputRef}
+          <button 
+            onClick={() => fileInputRef.current?.click()}
             disabled={loading}
+            className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+            aria-label="Upload file"
           />
           
           {loading ? (
@@ -418,11 +440,11 @@ export default function RelatoriosVendasModule() {
         </div>
       )}
       
-      {/* LOADING OVERLAY ON DELETE */}
+      {/* LOADING OVERLAY ON DELETE OR UPLOAD */}
       {loading && registrosDb.length > 0 && (
         <div className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-slate-950/80 backdrop-blur-sm">
-          <div className="h-12 w-12 border-4 border-rose-500 border-t-transparent rounded-full animate-spin mb-4"></div>
-          <p className="text-white font-medium text-lg">Limpando base de dados...</p>
+          <div className="h-12 w-12 border-4 border-fuchsia-500 border-t-transparent rounded-full animate-spin mb-4"></div>
+          <p className="text-white font-medium text-lg">{loadingMsg || "Processando..."}</p>
         </div>
       )}
 
