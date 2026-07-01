@@ -1,5 +1,5 @@
 import React, { useState, useRef } from "react";
-import { UploadCloud, FileText, AlertCircle, BarChart3, TrendingUp, DollarSign, Award, CheckCircle2, FileSpreadsheet } from "lucide-react";
+import { UploadCloud, FileText, AlertCircle, BarChart3, TrendingUp, DollarSign, Award, CheckCircle2, FileSpreadsheet, Trophy } from "lucide-react";
 import * as XLSX from "xlsx";
 import * as pdfjsLib from "pdfjs-dist";
 
