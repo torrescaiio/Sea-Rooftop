@@ -81,7 +81,7 @@ export default function ExtrasModule() {
 
       if (contato.trim()) {
         try {
-          await appDb.add("agenda_contatos", {
+          await appDb.add("contatos", {
             nome: nome.trim(),
             categoria: "Extras",
             telefone: contato.trim(),
@@ -186,7 +186,7 @@ export default function ExtrasModule() {
   }
 
   return (
-    <div className="h-full flex flex-col space-y-6 animate-in fade-in duration-300">
+    <div className="flex flex-col space-y-6 animate-in fade-in duration-300">
       
       {/* HEADER */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
@@ -235,8 +235,8 @@ export default function ExtrasModule() {
       </div>
 
       {/* LISTA */}
-      <div className="bg-slate-900/50 border border-slate-800 rounded-xl flex-1 flex flex-col min-h-0">
-        <div className="overflow-auto flex-1">
+      <div className="bg-slate-900/50 border border-slate-800 rounded-xl overflow-hidden">
+        <div className="overflow-x-auto">
           <table className="w-full text-left border-collapse">
             <thead>
               <tr className="bg-slate-900/80 border-b border-slate-800 text-xs uppercase tracking-wider text-slate-400 font-mono">

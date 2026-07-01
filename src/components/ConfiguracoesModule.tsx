@@ -102,7 +102,7 @@ export default function ConfiguracoesModule({ user }: { user?: any }) {
       
       const extras = await appDb.getAll("extras_semana");
       const eventos = await appDb.getAll("agenda_eventos");
-      const contatos = await appDb.getAll("agenda_contatos");
+      const contatos = await appDb.getAll("contatos");
 
       let addedCount = 0;
 
@@ -111,7 +111,7 @@ export default function ConfiguracoesModule({ user }: { user?: any }) {
         if (!extra.nome) continue;
         const exists = contatos.some(c => c.nome.toLowerCase() === extra.nome.toLowerCase());
         if (!exists) {
-          await appDb.add("agenda_contatos", {
+          await appDb.add("contatos", {
             nome: extra.nome.trim(),
             categoria: "Extras",
             telefone: extra.contato || "",
@@ -127,7 +127,7 @@ export default function ConfiguracoesModule({ user }: { user?: any }) {
         if (!evento.artistaNome) continue;
         const exists = contatos.some(c => c.nome.toLowerCase() === evento.artistaNome.toLowerCase());
         if (!exists) {
-          await appDb.add("agenda_contatos", {
+          await appDb.add("contatos", {
             nome: evento.artistaNome.trim(),
             categoria: "Músicos",
             telefone: "", // Not available in event

@@ -119,7 +119,7 @@ export default function AgendaModule() {
 
         try {
           if (artistaNome.trim()) {
-            await appDb.add("agenda_contatos", {
+            await appDb.add("contatos", {
               nome: artistaNome.trim(),
               categoria: "Músicos",
               telefone: "",

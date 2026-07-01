@@ -316,7 +316,7 @@ export default function VinhosModule() {
   }
 
   return (
-    <div className="h-full flex flex-col space-y-6 animate-in fade-in duration-300">
+    <div className="flex flex-col space-y-6 animate-in fade-in duration-300">
       
       {/* HEADER E TABS */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
