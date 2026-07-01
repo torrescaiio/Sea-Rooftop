@@ -15,6 +15,9 @@ export default function RelatoriosVendasModule() {
   const [fetchingDb, setFetchingDb] = useState(true);
 
   // Estados derivados para exibição
+  const [selectedGrupo, setSelectedGrupo] = useState<string>("Todos");
+  const [gruposDisponiveis, setGruposDisponiveis] = useState<string[]>([]);
+  
   const [vendas, setVendas] = useState<any[]>([]);
   const [vendasPorGarcom, setVendasPorGarcom] = useState<any[]>([]);
   const [kpis, setKpis] = useState<{ totalVendas: number; totalItens: number; ticketMedio: number; topGarcom?: string } | null>(null);
@@ -26,20 +29,31 @@ export default function RelatoriosVendasModule() {
       const records = data as VendaSoftcom[];
       setRegistrosDb(records);
       
-      if (records.length > 0) {
-        processDbData(records);
-      } else {
-        setKpis(null);
-        setVendas([]);
-        setVendasPorGarcom([]);
-      }
+      const grupos = Array.from(new Set(records.map(r => r.grupo || "Geral"))).sort();
+      setGruposDisponiveis(["Todos", ...grupos]);
+
       setFetchingDb(false);
     });
 
     return () => unsub();
   }, []);
 
-  const processDbData = (records: VendaSoftcom[]) => {
+  useEffect(() => {
+    if (registrosDb.length > 0) {
+      processDbData(registrosDb, selectedGrupo);
+    } else {
+      setKpis(null);
+      setVendas([]);
+      setVendasPorGarcom([]);
+    }
+  }, [registrosDb, selectedGrupo]);
+
+  const processDbData = (records: VendaSoftcom[], grupoFiltro: string) => {
+    let filteredRecords = records;
+    if (grupoFiltro !== "Todos") {
+      filteredRecords = records.filter(r => (r.grupo || "Geral") === grupoFiltro);
+    }
+
     let totalVendas = 0;
     let totalItens = 0;
     
@@ -47,7 +61,7 @@ export default function RelatoriosVendasModule() {
     const groupedItems: Record<string, any> = {};
     const garcomStats: Record<string, number> = {};
 
-    records.forEach(item => {
+    filteredRecords.forEach(item => {
       totalVendas += item.valorVenda;
       totalItens += item.quantidade;
 
@@ -294,7 +308,22 @@ export default function RelatoriosVendasModule() {
       {kpis && registrosDb.length > 0 && !loading && (
         <div className="space-y-6 animate-in slide-in-from-bottom-4 duration-500">
           
-          <h2 className="text-xl font-bold text-white tracking-tight">Análise Consolidada</h2>
+          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 border-b border-slate-800 pb-4">
+            <h2 className="text-xl font-bold text-white tracking-tight">Análise Consolidada</h2>
+            
+            <div className="flex items-center gap-2 w-full sm:w-auto">
+              <span className="text-sm text-slate-400 font-medium">Filtrar por Grupo:</span>
+              <select 
+                value={selectedGrupo} 
+                onChange={(e) => setSelectedGrupo(e.target.value)}
+                className="bg-slate-900 border border-slate-700 text-white rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-fuchsia-500"
+              >
+                {gruposDisponiveis.map(grupo => (
+                  <option key={grupo} value={grupo}>{grupo}</option>
+                ))}
+              </select>
+            </div>
+          </div>
           
           {/* KPIs GRID */}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -343,10 +372,13 @@ export default function RelatoriosVendasModule() {
           {/* GRÁFICOS */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
             <div className="bg-slate-900 border border-slate-800 rounded-xl p-5">
-              <h3 className="text-sm font-semibold text-slate-200 uppercase tracking-wider font-mono mb-4 flex items-center gap-2">
+              <h3 className="text-sm font-semibold text-slate-200 uppercase tracking-wider font-mono mb-1 flex items-center gap-2">
                 <BarChart3 className="h-4 w-4 text-fuchsia-400" />
                 Top 5 Itens Mais Vendidos (Qtd)
               </h3>
+              <p className="text-xs text-slate-500 mb-4 font-sans">
+                {selectedGrupo === "Todos" ? "Todos os grupos" : `Filtrado por: ${selectedGrupo}`}
+              </p>
               <div className="h-64">
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart data={vendas.slice(0, 5)} layout="vertical" margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
@@ -369,10 +401,13 @@ export default function RelatoriosVendasModule() {
             </div>
 
             <div className="bg-slate-900 border border-slate-800 rounded-xl p-5">
-              <h3 className="text-sm font-semibold text-slate-200 uppercase tracking-wider font-mono mb-4 flex items-center gap-2">
+              <h3 className="text-sm font-semibold text-slate-200 uppercase tracking-wider font-mono mb-1 flex items-center gap-2">
                 <Award className="h-4 w-4 text-amber-400" />
                 Venda por Garçom (R$)
               </h3>
+              <p className="text-xs text-slate-500 mb-4 font-sans">
+                {selectedGrupo === "Todos" ? "Todos os grupos" : `Filtrado por: ${selectedGrupo}`}
+              </p>
               <div className="h-64">
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart data={vendasPorGarcom.slice(0, 10)} margin={{ top: 20, right: 30, left: 20, bottom: 5 }}>
