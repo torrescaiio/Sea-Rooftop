@@ -9,6 +9,7 @@ import ManutencaoModule from "./components/ManutencaoModule";
 import ComprasModule from "./components/ComprasModule";
 import AgendaModule from "./components/AgendaModule";
 import ContatosModule from "./components/ContatosModule";
+import VinhosModule from "./components/VinhosModule";
 import ConfiguracoesModule from "./components/ConfiguracoesModule";
 import { appAuth } from "./firebase";
 import { Clock, HelpCircle, LogOut, Sun } from "lucide-react";
@@ -94,6 +95,8 @@ export default function App() {
         return <AgendaModule />;
       case "contatos":
         return <ContatosModule />;
+      case "vinhos":
+        return <VinhosModule />;
       case "configuracoes":
         return <ConfiguracoesModule user={activeUser} />;
       default:

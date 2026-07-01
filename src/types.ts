@@ -93,3 +93,25 @@ export interface Contact {
   detalhes?: string;
   createdAt: string;
 }
+
+export interface Vinho {
+  id: string;
+  nome: string;
+  tipo: 'Tinto' | 'Branco' | 'Rosé' | 'Espumante' | 'Sobremesa' | 'Outro';
+  uva: string;
+  produtor: string;
+  pais: string;
+  precoCusto?: number;
+  fornecedor?: string;
+  createdAt: string;
+}
+
+export interface PedidoVinho {
+  id: string;
+  dataPedido: string; // YYYY-MM-DD
+  itens: { vinhoId: string; quantidade: number; precoUnitario?: number; nome: string }[];
+  valorTotal: number;
+  status: 'Pendente' | 'Enviado' | 'Recebido';
+  createdAt: string;
+}
+
