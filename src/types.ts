@@ -136,6 +136,8 @@ export interface ExtraSemana {
 export interface VendaSoftcom {
   id: string;
   dataUpload: string;
+  periodoInicio?: string;
+  periodoFim?: string;
   garcom: string;
   nome: string;
   grupo: string;
