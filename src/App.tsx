@@ -11,6 +11,7 @@ import AgendaModule from "./components/AgendaModule";
 import ContatosModule from "./components/ContatosModule";
 import VinhosModule from "./components/VinhosModule";
 import ExtrasModule from "./components/ExtrasModule";
+import RelatoriosVendasModule from "./components/RelatoriosVendasModule";
 import ConfiguracoesModule from "./components/ConfiguracoesModule";
 import { appAuth } from "./firebase";
 import { Clock, HelpCircle, LogOut, Sun } from "lucide-react";
@@ -100,6 +101,8 @@ export default function App() {
         return <VinhosModule />;
       case "extras":
         return <ExtrasModule />;
+      case "relatorios":
+        return <RelatoriosVendasModule />;
       case "configuracoes":
         return <ConfiguracoesModule user={activeUser} />;
       default:
