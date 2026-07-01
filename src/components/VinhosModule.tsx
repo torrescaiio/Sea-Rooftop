@@ -154,7 +154,8 @@ export default function VinhosModule() {
         vinhoId: item.vinhoId,
         nome: v ? `${v.nome} (${v.produtor})` : "Desconhecido",
         quantidade: item.quantidade,
-        precoUnitario: preco
+        precoUnitario: preco,
+        fornecedor: v?.fornecedor || "Não informado"
       };
     });
 
@@ -185,16 +186,14 @@ export default function VinhosModule() {
     doc.text(`Data: ${pedido.dataPedido.split("-").reverse().join("/")}`, 14, 28);
     doc.text(`Status: ${pedido.status}`, 14, 34);
 
-    const tableColumn = ["Vinho", "Qtd", "Val. Unit.", "Subtotal"];
+    const tableColumn = ["Fornecedor", "Vinho", "Qtd"];
     const tableRows: any[] = [];
     
     pedido.itens.forEach(item => {
-      const sub = (item.precoUnitario || 0) * item.quantidade;
       tableRows.push([
+        item.fornecedor || "-",
         item.nome,
-        item.quantidade,
-        `R$ ${(item.precoUnitario || 0).toFixed(2)}`,
-        `R$ ${sub.toFixed(2)}`
+        item.quantidade
       ]);
     });
 
@@ -206,12 +205,6 @@ export default function VinhosModule() {
       styles: { fontSize: 9 },
       headStyles: { fillColor: [40, 40, 40] }
     });
-
-    // @ts-ignore
-    const finalY = doc.lastAutoTable.finalY || 40;
-    doc.setFontSize(12);
-    doc.setTextColor(0);
-    doc.text(`Total do Pedido: R$ ${pedido.valorTotal.toFixed(2)}`, 14, finalY + 10);
 
     doc.save(`pedido_vinhos_${pedido.dataPedido}.pdf`);
   };

@@ -109,7 +109,7 @@ export interface Vinho {
 export interface PedidoVinho {
   id: string;
   dataPedido: string; // YYYY-MM-DD
-  itens: { vinhoId: string; quantidade: number; precoUnitario?: number; nome: string }[];
+  itens: { vinhoId: string; quantidade: number; precoUnitario?: number; nome: string; fornecedor?: string }[];
   valorTotal: number;
   status: 'Pendente' | 'Enviado' | 'Recebido';
   createdAt: string;
