@@ -122,3 +122,14 @@ export interface PedidoVinho {
   createdAt: string;
 }
 
+export interface ExtraSemana {
+  id: string;
+  data: string; // YYYY-MM-DD
+  nome: string;
+  contato: string;
+  funcao: string;
+  valor: number;
+  motivo: string;
+  createdAt: string;
+}
+

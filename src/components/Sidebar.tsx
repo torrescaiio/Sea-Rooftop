@@ -15,7 +15,8 @@ import {
   Settings,
   X,
   BookOpen,
-  Wine
+  Wine,
+  Briefcase
 } from "lucide-react";
 import { isFirebaseActive } from "../firebase";
 
@@ -40,6 +41,7 @@ export default function Sidebar({ activeModule, setActiveModule, user, onSignOut
     { id: "agenda", name: "Eventos & Atrações", icon: Sparkles },
     { id: "contatos", name: "Agenda de Contatos", icon: BookOpen },
     { id: "vinhos", name: "Carta de Vinhos", icon: Wine },
+    { id: "extras", name: "Extras da Semana", icon: Briefcase },
     { id: "configuracoes", name: "Configurações", icon: Settings },
   ];
 
