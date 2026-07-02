@@ -301,8 +301,8 @@ export default function ManutencaoModule() {
               ) : (
                 repairs.map(rep => (
                   <div key={rep.id} className="p-4 rounded-xl bg-slate-900 border border-slate-800/80 flex justify-between items-center gap-4 hover:border-slate-750 transition">
-                    <div className="space-y-1.5 min-w-0">
-                      <h4 className="text-sm font-semibold text-white truncate font-mono">{rep.item}</h4>
+                    <div className="space-y-1.5 flex-1 min-w-0">
+                      <h4 className="text-sm font-semibold text-white break-words font-mono">{rep.item}</h4>
                       <div className="flex flex-wrap gap-2 text-[10px] text-slate-400 items-center">
                         <span className="font-mono bg-slate-950 px-2 py-0.5 rounded border border-slate-850">Local: {rep.local}</span>
                         <span className={`px-2 py-0.5 rounded font-bold border uppercase ${getPriorityColor(rep.prioridade)}`}>
@@ -361,8 +361,8 @@ export default function ManutencaoModule() {
               ) : (
                 purchases.map(pur => (
                   <div key={pur.id} className="p-4 rounded-xl bg-slate-900 border border-slate-800/80 flex justify-between items-center gap-4 hover:border-slate-750 transition">
-                    <div className="space-y-1.5 min-w-0">
-                      <h4 className="text-sm font-semibold text-white truncate font-mono">{pur.item}</h4>
+                    <div className="space-y-1.5 flex-1 min-w-0">
+                      <h4 className="text-sm font-semibold text-white break-words font-mono">{pur.item}</h4>
                       <div className="flex flex-wrap gap-2 text-[10px] text-slate-400 items-center">
                         <span className="font-mono bg-slate-950 px-2 py-0.5 rounded border border-slate-850">Fornecedor: {pur.fornecedor}</span>
                         <span className="font-bold text-emerald-400 font-mono">
