@@ -26,6 +26,7 @@ export default function ExtrasModule() {
   const [funcao, setFuncao] = useState("");
   const [valor, setValor] = useState<number | "">("");
   const [motivo, setMotivo] = useState("");
+  const [statusPagamento, setStatusPagamento] = useState<"Pago" | "A Pagar">("A Pagar");
 
   // Modal de Relatório
   const [showReportModal, setShowReportModal] = useState(false);
@@ -59,6 +60,7 @@ export default function ExtrasModule() {
     setFuncao("");
     setValor("");
     setMotivo("");
+    setStatusPagamento("A Pagar");
     setShowAddModal(true);
   };
 
@@ -76,7 +78,8 @@ export default function ExtrasModule() {
         contato: contato.trim(),
         funcao: funcao.trim(),
         valor: Number(valor),
-        motivo: motivo.trim()
+        motivo: motivo.trim(),
+        statusPagamento
       });
 
       if (contato.trim()) {
@@ -144,7 +147,7 @@ export default function ExtrasModule() {
     doc.setTextColor(100);
     doc.text(`Período: ${reportStartDate.split("-").reverse().join("/")} a ${reportEndDate.split("-").reverse().join("/")}`, 14, 28);
 
-    const tableColumn = ["Data", "Nome", "Função", "Motivo", "Valor"];
+    const tableColumn = ["Data", "Nome", "Função", "Motivo", "Valor", "Status"];
     const tableRows: any[] = [];
     
     filtered.forEach(ex => {
@@ -153,7 +156,8 @@ export default function ExtrasModule() {
         ex.nome,
         ex.funcao,
         ex.motivo || "-",
-        `R$ ${ex.valor.toFixed(2)}`
+        `R$ ${ex.valor.toFixed(2)}`,
+        ex.statusPagamento || "A Pagar"
       ]);
     });
 
@@ -245,13 +249,14 @@ export default function ExtrasModule() {
                 <th className="p-4 font-semibold">Função</th>
                 <th className="p-4 font-semibold">Motivo</th>
                 <th className="p-4 font-semibold w-32">Valor</th>
+                <th className="p-4 font-semibold w-24 text-center">Status</th>
                 <th className="p-4 font-semibold text-right w-16">Ações</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-800/50 text-slate-300 text-sm">
               {filteredList.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="p-8 text-center text-slate-500 font-mono text-xs">
+                  <td colSpan={7} className="p-8 text-center text-slate-500 font-mono text-xs">
                     NENHUM REGISTRO NESTE MÊS
                   </td>
                 </tr>
@@ -275,6 +280,25 @@ export default function ExtrasModule() {
                     </td>
                     <td className="p-4 font-mono font-medium text-amber-400">
                       R$ {ex.valor.toFixed(2)}
+                    </td>
+                    <td className="p-4 text-center">
+                      <button
+                        onClick={async () => {
+                          const newStatus = ex.statusPagamento === 'Pago' ? 'A Pagar' : 'Pago';
+                          try {
+                            await appDb.update('extras_semana', ex.id, { statusPagamento: newStatus });
+                          } catch (err) {
+                            console.error(err);
+                          }
+                        }}
+                        className={`px-2 py-1 text-[10px] font-bold font-mono uppercase rounded border transition ${
+                          ex.statusPagamento === 'Pago' 
+                            ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20 hover:bg-emerald-500/20' 
+                            : 'bg-rose-500/10 text-rose-400 border-rose-500/20 hover:bg-rose-500/20'
+                        }`}
+                      >
+                        {ex.statusPagamento || 'A Pagar'}
+                      </button>
                     </td>
                     <td className="p-4 text-right">
                       <button
@@ -383,16 +407,31 @@ export default function ExtrasModule() {
                 </div>
               </div>
 
-              <div>
-                <label className="block text-xs font-mono uppercase tracking-wider text-slate-400 mb-1.5">
-                  Motivo / Descrição
-                </label>
-                <textarea
-                  value={motivo}
-                  onChange={(e) => setMotivo(e.target.value)}
-                  className="w-full bg-slate-950 border border-slate-850 rounded-lg p-2.5 text-slate-200 text-sm focus:border-amber-500 focus:outline-none min-h-[80px]"
-                  placeholder="Por que foi contratado? Ex: Cobertura de folga, evento corporativo..."
-                />
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-mono uppercase tracking-wider text-slate-400 mb-1.5">
+                    Motivo / Descrição
+                  </label>
+                  <textarea
+                    value={motivo}
+                    onChange={(e) => setMotivo(e.target.value)}
+                    className="w-full bg-slate-950 border border-slate-850 rounded-lg p-2.5 text-slate-200 text-sm focus:border-amber-500 focus:outline-none min-h-[80px]"
+                    placeholder="Por que foi contratado? Ex: Cobertura de folga, evento corporativo..."
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-mono uppercase tracking-wider text-slate-400 mb-1.5">
+                    Status de Pagamento
+                  </label>
+                  <select
+                    value={statusPagamento}
+                    onChange={(e) => setStatusPagamento(e.target.value as "Pago" | "A Pagar")}
+                    className="w-full bg-slate-950 border border-slate-850 rounded-lg p-2.5 text-slate-200 text-sm focus:border-amber-500 focus:outline-none"
+                  >
+                    <option value="A Pagar">A Pagar</option>
+                    <option value="Pago">Pago</option>
+                  </select>
+                </div>
               </div>
 
               <div className="flex items-center justify-end space-x-3 pt-4 border-t border-slate-800">

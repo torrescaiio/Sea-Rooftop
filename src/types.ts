@@ -130,6 +130,7 @@ export interface ExtraSemana {
   funcao: string;
   valor: number;
   motivo: string;
+  statusPagamento?: 'Pago' | 'A Pagar';
   createdAt: string;
 }
 
