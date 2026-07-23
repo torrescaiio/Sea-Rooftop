@@ -31,6 +31,15 @@ export default function AgendaModule() {
   // Focus View Detail Modal states
   const [activeDetailEvent, setActiveDetailEvent] = useState<AgendaEvent | null>(null);
 
+  // Modal de Relatório
+  const [showReportModal, setShowReportModal] = useState(false);
+  const [reportStartDate, setReportStartDate] = useState(
+    new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split("T")[0]
+  );
+  const [reportEndDate, setReportEndDate] = useState(
+    new Date().toISOString().split("T")[0]
+  );
+
   // Add Event Modal form states
   const [showAddModal, setShowAddModal] = useState(false);
   const [editEventId, setEditEventId] = useState<string | null>(null);
@@ -185,14 +194,43 @@ export default function AgendaModule() {
   // Group events by date (sorted)
   const sortedEvents = [...events].sort((a, b) => new Date(a.data).getTime() - new Date(b.data).getTime());
 
+  const uniqueArtists = Array.from(
+    new Map(events.filter(e => e.artistaNome).map(e => [e.artistaNome.trim().toLowerCase(), e])).values()
+  ).sort((a, b) => a.artistaNome.localeCompare(b.artistaNome));
+
+  const handleSelectPastArtist = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const artistId = e.target.value;
+    if (!artistId) return;
+    
+    const artist = events.find(ev => ev.id === artistId);
+    if (artist) {
+      setArtistaNome(artist.artistaNome);
+      setCacheCusto(artist.cacheCusto);
+      setChavePix(artist.chavePix || "");
+      setNecessidadesTecnicas(artist.necessidadesTecnicas || "");
+      setTipoEvento(artist.tipoEvento);
+    }
+  };
+
   const handleExportPDF = () => {
     const doc = new jsPDF();
     doc.text("Relatório da Agenda de Eventos", 14, 15);
+    doc.setFontSize(10);
+    doc.setTextColor(100);
+    doc.text(`Período: ${reportStartDate.split("-").reverse().join("/")} a ${reportEndDate.split("-").reverse().join("/")}`, 14, 22);
     
     const tableColumn = ["Data", "Atração", "Tipo", "Chave PIX", "Cachê", "Status"];
     const tableRows: any[] = [];
     
-    sortedEvents.forEach(evt => {
+    const start = new Date(reportStartDate + "T00:00:00");
+    const end = new Date(reportEndDate + "T23:59:59");
+    
+    const filtered = sortedEvents.filter(ex => {
+      const d = new Date(ex.data + "T00:00:00");
+      return d >= start && d <= end;
+    });
+
+    filtered.forEach(evt => {
       const rowData = [
         formatDateBR(evt.data),
         evt.artistaNome,
@@ -207,10 +245,11 @@ export default function AgendaModule() {
     autoTable(doc, {
       head: [tableColumn],
       body: tableRows,
-      startY: 20,
+      startY: 28,
     });
     
-    doc.save("agenda-export.pdf");
+    doc.save(`agenda-export-${reportStartDate}-a-${reportEndDate}.pdf`);
+    setShowReportModal(false);
   };
 
   return (
@@ -228,7 +267,7 @@ export default function AgendaModule() {
         </div>
         <div className="flex items-center gap-3">
           <button
-            onClick={handleExportPDF}
+            onClick={() => setShowReportModal(true)}
             className="inline-flex items-center gap-2 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 hover:border-slate-600 font-medium text-sm px-4 py-2.5 rounded-lg shadow-sm transition-all cursor-pointer"
           >
             <FileDown className="h-4 w-4" />
@@ -504,10 +543,23 @@ export default function AgendaModule() {
                 </div>
               </div>
 
-              <div>
-                <label className="block text-xs font-mono uppercase tracking-wider text-slate-400 mb-1.5">
-                  Atração / Nome do Artista
-                </label>
+              <div className="bg-slate-950/50 p-4 border border-slate-800 rounded-lg space-y-3">
+                <div className="flex justify-between items-center">
+                  <label className="block text-xs font-mono uppercase tracking-wider text-slate-400">
+                    Atração / Nome do Artista
+                  </label>
+                  {uniqueArtists.length > 0 && !editEventId && (
+                    <select
+                      onChange={handleSelectPastArtist}
+                      className="bg-slate-900 border border-slate-700 text-slate-300 text-xs rounded px-2 py-1 focus:outline-none"
+                    >
+                      <option value="">Puxar dados de atração anterior...</option>
+                      {uniqueArtists.map(artist => (
+                        <option key={artist.id} value={artist.id}>{artist.artistaNome}</option>
+                      ))}
+                    </select>
+                  )}
+                </div>
                 <input
                   type="text"
                   required
@@ -636,6 +688,64 @@ export default function AgendaModule() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL DE RELATÓRIO PDF */}
+      {showReportModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
+          <div className="w-full max-w-sm bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl overflow-hidden animate-in zoom-in-95 duration-150">
+            <div className="p-5 border-b border-slate-800 flex justify-between items-center">
+              <h3 className="text-lg font-bold text-white">Gerar Relatório de Eventos</h3>
+              <button 
+                onClick={() => setShowReportModal(false)}
+                className="p-1 hover:bg-slate-800 text-slate-400 hover:text-white rounded-lg"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            <div className="p-5 space-y-4">
+              <p className="text-sm text-slate-400">
+                Selecione o período para gerar o relatório consolidado de eventos e atrações.
+              </p>
+              
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-mono uppercase tracking-wider text-slate-400 mb-1.5">Data Inicial</label>
+                  <input
+                    type="date"
+                    value={reportStartDate}
+                    onChange={(e) => setReportStartDate(e.target.value)}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-slate-200 text-sm focus:border-cyan-500 focus:outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-mono uppercase tracking-wider text-slate-400 mb-1.5">Data Final</label>
+                  <input
+                    type="date"
+                    value={reportEndDate}
+                    onChange={(e) => setReportEndDate(e.target.value)}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-slate-200 text-sm focus:border-cyan-500 focus:outline-none"
+                  />
+                </div>
+              </div>
+            </div>
+            <div className="p-4 border-t border-slate-800 flex justify-end gap-3 bg-slate-950/30">
+              <button
+                onClick={() => setShowReportModal(false)}
+                className="px-4 py-2 text-sm font-medium text-slate-400 hover:text-white transition"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={handleExportPDF}
+                className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-white border border-slate-700 rounded-lg text-sm font-medium transition flex items-center gap-2"
+              >
+                <FileDown className="h-4 w-4" />
+                Baixar PDF
+              </button>
+            </div>
           </div>
         </div>
       )}
