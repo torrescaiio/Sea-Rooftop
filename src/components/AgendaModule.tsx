@@ -194,9 +194,9 @@ export default function AgendaModule() {
   // Group events by date (sorted)
   const sortedEvents = [...events].sort((a, b) => new Date(a.data).getTime() - new Date(b.data).getTime());
 
-  const uniqueArtists = Array.from(
+  const uniqueArtists: AgendaEvent[] = Array.from(
     new Map(events.filter(e => e.artistaNome).map(e => [e.artistaNome.trim().toLowerCase(), e])).values()
-  ).sort((a, b) => a.artistaNome.localeCompare(b.artistaNome));
+  ).sort((a: any, b: any) => a.artistaNome.localeCompare(b.artistaNome)) as AgendaEvent[];
 
   const handleSelectPastArtist = (e: React.ChangeEvent<HTMLSelectElement>) => {
     const artistId = e.target.value;

@@ -8,6 +8,7 @@ import OcorrenciasModule from "./components/OcorrenciasModule";
 import ManutencaoModule from "./components/ManutencaoModule";
 import ComprasModule from "./components/ComprasModule";
 import AgendaModule from "./components/AgendaModule";
+import BalancoEventosModule from "./components/BalancoEventosModule";
 import ContatosModule from "./components/ContatosModule";
 import VinhosModule from "./components/VinhosModule";
 import ExtrasModule from "./components/ExtrasModule";
@@ -95,6 +96,8 @@ export default function App() {
         return <ComprasModule />;
       case "agenda":
         return <AgendaModule />;
+      case "balanco_eventos":
+        return <BalancoEventosModule />;
       case "contatos":
         return <ContatosModule />;
       case "vinhos":

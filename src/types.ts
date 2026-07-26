@@ -134,6 +134,25 @@ export interface ExtraSemana {
   createdAt: string;
 }
 
+export interface DespesaEvento {
+  id: string;
+  categoria: string;
+  descricao: string;
+  valor: number;
+}
+
+export interface BalancoEvento {
+  id: string;
+  nomeEvento: string;
+  dataEvento: string;
+  faturamentoBruto: number;
+  despesas: DespesaEvento[];
+  totalDespesas: number;
+  lucroLiquido: number;
+  observacoes?: string;
+  createdAt: string;
+}
+
 export interface VendaSoftcom {
   id: string;
   dataUpload: string;
