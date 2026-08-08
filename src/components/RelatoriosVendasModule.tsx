@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState, useRef, useEffect, useMemo } from "react";
 import {
   UploadCloud,
   FileText,
@@ -12,6 +12,7 @@ import {
   Trophy,
   RefreshCcw,
   Trash2,
+  Search,
 } from "lucide-react";
 import * as XLSX from "xlsx";
 import {
@@ -60,6 +61,12 @@ export default function RelatoriosVendasModule() {
   const [periodoInicio, setPeriodoInicio] = useState("");
   const [periodoFim, setPeriodoFim] = useState("");
 
+  // Estados para busca de item
+  const [selectedItens, setSelectedItens] = useState<string[]>([]);
+  const [showItensDropdown, setShowItensDropdown] = useState(false);
+  const [searchTermItens, setSearchTermItens] = useState("");
+  const [itensDisponiveis, setItensDisponiveis] = useState<string[]>([]);
+
   useEffect(() => {
     const unsub = appDb.subscribe("vendas_softcom", (data) => {
       const records = data as VendaSoftcom[];
@@ -74,6 +81,11 @@ export default function RelatoriosVendasModule() {
         new Set(records.map((r) => r.garcom || "Não Identificado")),
       ).sort();
       setGarconsDisponiveis(["Todos", ...garcons]);
+      
+      const itens = Array.from(
+        new Set(records.map((r) => r.nome || "Não Identificado")),
+      ).sort();
+      setItensDisponiveis(itens);
 
       setFetchingDb(false);
     });
@@ -83,18 +95,19 @@ export default function RelatoriosVendasModule() {
 
   useEffect(() => {
     if (registrosDb.length > 0) {
-      processDbData(registrosDb, selectedGrupos, selectedGarcom);
+      processDbData(registrosDb, selectedGrupos, selectedGarcom, selectedItens);
     } else {
       setKpis(null);
       setVendas([]);
       setVendasPorGarcom([]);
     }
-  }, [registrosDb, selectedGrupos, selectedGarcom]);
+  }, [registrosDb, selectedGrupos, selectedGarcom, selectedItens]);
 
   const processDbData = (
     records: VendaSoftcom[],
     gruposFiltro: string[],
     garcomFiltro: string,
+    itensFiltro: string[]
   ) => {
     let filteredRecords = records;
     if (gruposFiltro.length > 0) {
@@ -105,6 +118,11 @@ export default function RelatoriosVendasModule() {
     if (garcomFiltro !== "Todos") {
       filteredRecords = filteredRecords.filter(
         (r) => (r.garcom || "Não Identificado") === garcomFiltro,
+      );
+    }
+    if (itensFiltro.length > 0) {
+      filteredRecords = filteredRecords.filter((r) =>
+        itensFiltro.includes(r.nome || "Não Identificado"),
       );
     }
 
@@ -464,6 +482,76 @@ export default function RelatoriosVendasModule() {
                     </option>
                   ))}
                 </select>
+              </div>
+
+              <div className="flex flex-col sm:flex-row sm:items-center gap-1.5 sm:gap-2 relative w-full sm:w-auto">
+                <span className="text-sm text-slate-400 font-medium">
+                  Itens:
+                </span>
+                <div className="relative w-full sm:w-auto">
+                  <button
+                    onClick={() => setShowItensDropdown(!showItensDropdown)}
+                    className="bg-slate-900 border border-slate-700 text-white rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-fuchsia-500 w-full sm:min-w-[160px] text-left flex justify-between items-center"
+                  >
+                    <span className="truncate">
+                      {selectedItens.length === 0
+                        ? "Todos os Itens"
+                        : `${selectedItens.length} selecionado(s)`}
+                    </span>
+                    <span className="ml-2 text-xs">▼</span>
+                  </button>
+
+                  {showItensDropdown && (
+                    <div className="absolute top-full left-0 sm:left-auto sm:right-0 mt-1 w-full sm:w-64 bg-slate-800 border border-slate-700 rounded-lg shadow-xl z-50 max-h-80 overflow-y-auto">
+                      <div className="p-2 flex flex-col gap-1">
+                        <div className="relative mb-2">
+                          <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 text-slate-400" />
+                          <input
+                            type="text"
+                            placeholder="Buscar item..."
+                            value={searchTermItens}
+                            onChange={(e) => setSearchTermItens(e.target.value)}
+                            className="w-full bg-slate-900 border border-slate-700 text-white text-xs rounded px-7 py-1.5 focus:outline-none focus:border-fuchsia-500"
+                          />
+                        </div>
+                        <label className="flex items-center gap-2 px-2 py-1.5 hover:bg-slate-700 rounded cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={selectedItens.length === 0}
+                            onChange={() => setSelectedItens([])}
+                            className="rounded border-slate-600 text-fuchsia-500 focus:ring-fuchsia-500 bg-slate-900"
+                          />
+                          <span className="text-sm text-white">
+                            Todos (Limpar Filtros)
+                          </span>
+                        </label>
+                        <div className="h-px bg-slate-700 my-1"></div>
+                        {itensDisponiveis
+                          .filter((item) => item.toLowerCase().includes(searchTermItens.toLowerCase()))
+                          .map((item) => (
+                          <label
+                            key={item}
+                            className="flex items-center gap-2 px-2 py-1.5 hover:bg-slate-700 rounded cursor-pointer"
+                          >
+                            <input
+                              type="checkbox"
+                              checked={selectedItens.includes(item)}
+                              onChange={() => {
+                                setSelectedItens((prev) =>
+                                  prev.includes(item)
+                                    ? prev.filter((i) => i !== item)
+                                    : [...prev, item],
+                                );
+                              }}
+                              className="rounded border-slate-600 text-fuchsia-500 focus:ring-fuchsia-500 bg-slate-900"
+                            />
+                            <span className="text-sm text-white">{item}</span>
+                          </label>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
               </div>
 
               <div className="flex flex-col sm:flex-row sm:items-center gap-1.5 sm:gap-2 relative w-full sm:w-auto">
