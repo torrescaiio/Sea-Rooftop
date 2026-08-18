@@ -16,8 +16,11 @@ import {
   SlidersHorizontal,
   Info,
   FileDown,
-  Pencil
+  Pencil,
+  ChevronLeft,
+  ChevronRight
 } from "lucide-react";
+
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 
@@ -30,6 +33,12 @@ export default function AgendaModule() {
 
   // Focus View Detail Modal states
   const [activeDetailEvent, setActiveDetailEvent] = useState<AgendaEvent | null>(null);
+
+  // Filtro de Mês
+  const [filterMonth, setFilterMonth] = useState(() => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+  });
 
   // Modal de Relatório
   const [showReportModal, setShowReportModal] = useState(false);
@@ -191,8 +200,32 @@ export default function AgendaModule() {
     }
   };
 
+  // Month Filter Handlers
+  const handlePrevMonth = () => {
+    if (!filterMonth) return;
+    const [year, month] = filterMonth.split('-');
+    const d = new Date(parseInt(year), parseInt(month) - 2, 1);
+    setFilterMonth(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`);
+  };
+
+  const handleNextMonth = () => {
+    if (!filterMonth) return;
+    const [year, month] = filterMonth.split('-');
+    const d = new Date(parseInt(year), parseInt(month), 1);
+    setFilterMonth(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`);
+  };
+
+  const getMonthLabel = (m: string) => {
+    if (!m) return "Todos";
+    const [year, month] = m.split('-');
+    const date = new Date(parseInt(year), parseInt(month) - 1, 1);
+    const monthName = date.toLocaleDateString('pt-BR', { month: 'long' });
+    return `${monthName.charAt(0).toUpperCase() + monthName.slice(1)} ${year}`;
+  };
+
   // Group events by date (sorted)
-  const sortedEvents = [...events].sort((a, b) => new Date(a.data).getTime() - new Date(b.data).getTime());
+  const allSortedEvents = [...events].sort((a, b) => new Date(a.data).getTime() - new Date(b.data).getTime());
+  const sortedEvents = allSortedEvents.filter(e => e.data && e.data.startsWith(filterMonth));
 
   const uniqueArtists: AgendaEvent[] = Array.from(
     new Map(events.filter(e => e.artistaNome).map(e => [e.artistaNome.trim().toLowerCase(), e])).values()
@@ -225,7 +258,7 @@ export default function AgendaModule() {
     const start = new Date(reportStartDate + "T00:00:00");
     const end = new Date(reportEndDate + "T23:59:59");
     
-    const filtered = sortedEvents.filter(ex => {
+    const filtered = allSortedEvents.filter(ex => {
       const d = new Date(ex.data + "T00:00:00");
       return d >= start && d <= end;
     });
@@ -280,6 +313,35 @@ export default function AgendaModule() {
             <PlusCircle className="h-4 w-4" />
             Agendar Atração
           </button>
+        </div>
+      </div>
+
+      {/* Month Filter */}
+      <div className="flex justify-between items-center bg-slate-900 border border-slate-800 p-4 rounded-xl">
+        <div className="flex items-center gap-4">
+          <button
+            onClick={handlePrevMonth}
+            className="p-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg transition"
+          >
+            <ChevronLeft className="h-5 w-5" />
+          </button>
+          <div className="flex flex-col items-center min-w-[140px]">
+            <span className="text-sm font-semibold text-white capitalize">
+              {getMonthLabel(filterMonth)}
+            </span>
+          </div>
+          <button
+            onClick={handleNextMonth}
+            className="p-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg transition"
+          >
+            <ChevronRight className="h-5 w-5" />
+          </button>
+        </div>
+        <div className="text-right">
+          <p className="text-xs text-slate-500 font-mono uppercase tracking-wider">Custo do Mês (Cachês)</p>
+          <p className="text-xl font-bold font-mono text-cyan-400">
+            R$ {sortedEvents.reduce((acc, curr) => acc + (curr.cacheCusto || 0), 0).toFixed(2)}
+          </p>
         </div>
       </div>
 

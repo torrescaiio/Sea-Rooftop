@@ -9,7 +9,9 @@ import {
   FileDown, 
   Calendar,
   Search,
-  Filter
+  Filter,
+  ChevronLeft,
+  ChevronRight
 } from "lucide-react";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
@@ -42,6 +44,28 @@ export default function ExtrasModule() {
     const d = new Date();
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
   });
+
+  const handlePrevMonth = () => {
+    if (!filterMonth) return;
+    const [year, month] = filterMonth.split('-');
+    const d = new Date(parseInt(year), parseInt(month) - 2, 1);
+    setFilterMonth(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`);
+  };
+
+  const handleNextMonth = () => {
+    if (!filterMonth) return;
+    const [year, month] = filterMonth.split('-');
+    const d = new Date(parseInt(year), parseInt(month), 1);
+    setFilterMonth(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`);
+  };
+
+  const getMonthLabel = (m: string) => {
+    if (!m) return "Todos";
+    const [year, month] = m.split('-');
+    const date = new Date(parseInt(year), parseInt(month) - 1, 1);
+    const monthName = date.toLocaleDateString('pt-BR', { month: 'long' });
+    return `${monthName.charAt(0).toUpperCase() + monthName.slice(1)} ${year}`;
+  };
 
   useEffect(() => {
     const unsub = appDb.subscribe("extras_semana", (data) => {
@@ -223,14 +247,24 @@ export default function ExtrasModule() {
       </div>
 
       <div className="flex flex-col sm:flex-row justify-between items-center gap-4 bg-slate-900 border border-slate-800 p-4 rounded-xl">
-        <div className="flex items-center gap-3">
-          <Filter className="h-5 w-5 text-slate-500" />
-          <input 
-            type="month" 
-            value={filterMonth}
-            onChange={(e) => setFilterMonth(e.target.value)}
-            className="bg-slate-950 border border-slate-800 text-slate-200 text-sm rounded-lg px-3 py-2 focus:outline-none focus:border-amber-500"
-          />
+        <div className="flex items-center gap-4">
+          <button
+            onClick={handlePrevMonth}
+            className="p-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg transition"
+          >
+            <ChevronLeft className="h-5 w-5" />
+          </button>
+          <div className="flex flex-col items-center min-w-[140px]">
+            <span className="text-sm font-semibold text-white capitalize">
+              {getMonthLabel(filterMonth)}
+            </span>
+          </div>
+          <button
+            onClick={handleNextMonth}
+            className="p-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg transition"
+          >
+            <ChevronRight className="h-5 w-5" />
+          </button>
         </div>
         <div className="text-right">
           <p className="text-xs text-slate-500 font-mono uppercase tracking-wider">Total Gasto no Mês Exibido</p>
