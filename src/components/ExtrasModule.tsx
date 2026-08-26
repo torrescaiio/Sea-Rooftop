@@ -44,6 +44,7 @@ export default function ExtrasModule() {
     const d = new Date();
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
   });
+  const [filterFuncao, setFilterFuncao] = useState("Todas");
 
   const handlePrevMonth = () => {
     if (!filterMonth) return;
@@ -205,7 +206,13 @@ export default function ExtrasModule() {
     setShowReportModal(false);
   };
 
-  const filteredList = extras.filter(ex => ex.data.startsWith(filterMonth));
+  const uniqueFuncoes = Array.from(new Set(extras.map(ex => ex.funcao.trim()))).filter(Boolean).sort();
+
+  const filteredList = extras.filter(ex => {
+    const matchMonth = ex.data.startsWith(filterMonth);
+    const matchFuncao = filterFuncao === "Todas" || ex.funcao.trim() === filterFuncao;
+    return matchMonth && matchFuncao;
+  });
 
   const totalMes = filteredList.reduce((acc, curr) => acc + curr.valor, 0);
 
@@ -247,27 +254,47 @@ export default function ExtrasModule() {
       </div>
 
       <div className="flex flex-col sm:flex-row justify-between items-center gap-4 bg-slate-900 border border-slate-800 p-4 rounded-xl">
-        <div className="flex items-center gap-4">
-          <button
-            onClick={handlePrevMonth}
-            className="p-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg transition"
-          >
-            <ChevronLeft className="h-5 w-5" />
-          </button>
-          <div className="flex flex-col items-center min-w-[140px]">
-            <span className="text-sm font-semibold text-white capitalize">
-              {getMonthLabel(filterMonth)}
-            </span>
+        <div className="flex flex-col sm:flex-row items-center gap-4 w-full sm:w-auto">
+          <div className="flex items-center gap-4">
+            <button
+              onClick={handlePrevMonth}
+              className="p-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg transition"
+            >
+              <ChevronLeft className="h-5 w-5" />
+            </button>
+            <div className="flex flex-col items-center min-w-[140px]">
+              <span className="text-sm font-semibold text-white capitalize">
+                {getMonthLabel(filterMonth)}
+              </span>
+            </div>
+            <button
+              onClick={handleNextMonth}
+              className="p-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg transition"
+            >
+              <ChevronRight className="h-5 w-5" />
+            </button>
           </div>
-          <button
-            onClick={handleNextMonth}
-            className="p-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg transition"
-          >
-            <ChevronRight className="h-5 w-5" />
-          </button>
+          
+          <div className="hidden sm:block h-8 w-px bg-slate-800"></div>
+          
+          <div className="w-full sm:w-48 relative">
+            <select
+              value={filterFuncao}
+              onChange={(e) => setFilterFuncao(e.target.value)}
+              className="w-full bg-slate-950 border border-slate-800 text-slate-200 text-sm rounded-lg px-3 py-2 appearance-none focus:outline-none focus:border-amber-500 transition-colors"
+            >
+              <option value="Todas">Todas as Funções</option>
+              {uniqueFuncoes.map(f => (
+                <option key={f} value={f}>{f}</option>
+              ))}
+            </select>
+            <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-slate-500">
+              <Filter className="h-4 w-4" />
+            </div>
+          </div>
         </div>
-        <div className="text-right">
-          <p className="text-xs text-slate-500 font-mono uppercase tracking-wider">Total Gasto no Mês Exibido</p>
+        <div className="text-center sm:text-right w-full sm:w-auto mt-2 sm:mt-0 pt-3 sm:pt-0 border-t sm:border-0 border-slate-800">
+          <p className="text-xs text-slate-500 font-mono uppercase tracking-wider">Custo {filterFuncao !== "Todas" ? `(${filterFuncao})` : "Total"} no Mês</p>
           <p className="text-xl font-bold font-mono text-amber-400">R$ {totalMes.toFixed(2)}</p>
         </div>
       </div>
