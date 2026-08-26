@@ -44,7 +44,8 @@ export default function ExtrasModule() {
     const d = new Date();
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
   });
-  const [filterFuncao, setFilterFuncao] = useState("Todas");
+  const [filterFuncoes, setFilterFuncoes] = useState<string[]>([]);
+  const [showFuncoesDropdown, setShowFuncoesDropdown] = useState(false);
 
   const handlePrevMonth = () => {
     if (!filterMonth) return;
@@ -210,7 +211,7 @@ export default function ExtrasModule() {
 
   const filteredList = extras.filter(ex => {
     const matchMonth = ex.data.startsWith(filterMonth);
-    const matchFuncao = filterFuncao === "Todas" || ex.funcao.trim() === filterFuncao;
+    const matchFuncao = filterFuncoes.length === 0 || filterFuncoes.includes(ex.funcao.trim());
     return matchMonth && matchFuncao;
   });
 
@@ -277,24 +278,58 @@ export default function ExtrasModule() {
           
           <div className="hidden sm:block h-8 w-px bg-slate-800"></div>
           
-          <div className="w-full sm:w-48 relative">
-            <select
-              value={filterFuncao}
-              onChange={(e) => setFilterFuncao(e.target.value)}
-              className="w-full bg-slate-950 border border-slate-800 text-slate-200 text-sm rounded-lg px-3 py-2 appearance-none focus:outline-none focus:border-amber-500 transition-colors"
+          <div className="w-full sm:w-64 relative">
+            <button
+              onClick={() => setShowFuncoesDropdown(!showFuncoesDropdown)}
+              className="w-full bg-slate-950 border border-slate-800 text-slate-200 text-sm rounded-lg px-3 py-2 focus:outline-none focus:border-amber-500 transition-colors flex justify-between items-center"
             >
-              <option value="Todas">Todas as Funções</option>
-              {uniqueFuncoes.map(f => (
-                <option key={f} value={f}>{f}</option>
-              ))}
-            </select>
-            <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-slate-500">
-              <Filter className="h-4 w-4" />
-            </div>
+              <span className="truncate">
+                {filterFuncoes.length === 0 
+                  ? "Todas as Funções" 
+                  : `${filterFuncoes.length} função(ões) selecionada(s)`}
+              </span>
+              <Filter className="h-4 w-4 text-slate-500" />
+            </button>
+            
+            {showFuncoesDropdown && (
+              <div className="absolute top-full left-0 mt-1 w-full bg-slate-800 border border-slate-700 rounded-lg shadow-xl z-50 max-h-60 overflow-y-auto">
+                <div className="p-2 flex flex-col gap-1">
+                  <label className="flex items-center gap-2 px-2 py-1.5 hover:bg-slate-700 rounded cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={filterFuncoes.length === 0}
+                      onChange={() => setFilterFuncoes([])}
+                      className="rounded border-slate-600 text-amber-500 focus:ring-amber-500 bg-slate-900"
+                    />
+                    <span className="text-sm text-white">Todas (Limpar)</span>
+                  </label>
+                  <div className="h-px bg-slate-700 my-1"></div>
+                  {uniqueFuncoes.map(f => (
+                    <label key={f} className="flex items-center gap-2 px-2 py-1.5 hover:bg-slate-700 rounded cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={filterFuncoes.includes(f)}
+                        onChange={() => {
+                          setFilterFuncoes(prev => 
+                            prev.includes(f) 
+                              ? prev.filter(item => item !== f)
+                              : [...prev, f]
+                          );
+                        }}
+                        className="rounded border-slate-600 text-amber-500 focus:ring-amber-500 bg-slate-900"
+                      />
+                      <span className="text-sm text-white">{f}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         </div>
         <div className="text-center sm:text-right w-full sm:w-auto mt-2 sm:mt-0 pt-3 sm:pt-0 border-t sm:border-0 border-slate-800">
-          <p className="text-xs text-slate-500 font-mono uppercase tracking-wider">Custo {filterFuncao !== "Todas" ? `(${filterFuncao})` : "Total"} no Mês</p>
+          <p className="text-xs text-slate-500 font-mono uppercase tracking-wider">
+            Custo {filterFuncoes.length > 0 ? "Filtrado" : "Total"} no Mês
+          </p>
           <p className="text-xl font-bold font-mono text-amber-400">R$ {totalMes.toFixed(2)}</p>
         </div>
       </div>
