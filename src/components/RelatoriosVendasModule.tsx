@@ -901,6 +901,45 @@ export default function RelatoriosVendasModule() {
               </div>
             </div>
           </div>
+          
+          {/* QUEM VENDEU MAIS DE UM DETERMINADO ITEM */}
+          {selectedItens.length > 0 && (
+            <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden mt-6">
+              <div className="px-6 py-4 border-b border-slate-800 flex justify-between items-center bg-slate-900/50">
+                <h3 className="text-sm font-semibold text-fuchsia-400 uppercase tracking-wider font-mono flex items-center gap-2">
+                  <Award className="h-4 w-4" />
+                  Ranking de Vendas por Item Selecionado
+                </h3>
+              </div>
+              <div className="p-6">
+                <p className="text-sm text-slate-400 mb-4">
+                  Mostrando os garçons que mais venderam os itens: <span className="font-bold text-slate-200">{selectedItens.join(", ")}</span>
+                </p>
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {vendasPorGarcom
+                    .filter(g => Object.keys(g.categorias).length > 0)
+                    .map((garcom, idx) => (
+                    <div key={idx} className="bg-slate-950 border border-slate-800/80 rounded-lg p-4 flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                        <div className="h-8 w-8 rounded-full bg-slate-800 flex items-center justify-center font-bold text-slate-300 text-xs">
+                          {idx + 1}º
+                        </div>
+                        <div>
+                          <p className="font-semibold text-slate-200">{garcom.nome}</p>
+                          <p className="text-xs text-slate-500">Total nesses itens: <span className="font-bold text-fuchsia-400">{garcom.quantidade} unid.</span></p>
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <p className="font-bold text-white font-mono">
+                          R$ {garcom.valor.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}
+                        </p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       )}
 

@@ -10,6 +10,7 @@ export default function BalancoEventosModule() {
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
   const [showAddModal, setShowAddModal] = useState(false);
+  const [filterMonth, setFilterMonth] = useState(""); // "" means all months
 
   // Formulário
   const [nomeEvento, setNomeEvento] = useState("");
@@ -152,10 +153,11 @@ export default function BalancoEventosModule() {
     doc.save(`Fechamento-${balanco.nomeEvento.replace(/[^a-z0-9]/gi, '_').toLowerCase()}-${balanco.dataEvento}.pdf`);
   };
 
-  const filteredBalancos = balancos.filter(b => 
-    b.nomeEvento.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    b.dataEvento.includes(searchTerm)
-  ).sort((a, b) => new Date(b.dataEvento).getTime() - new Date(a.dataEvento).getTime());
+  const filteredBalancos = balancos.filter(b => {
+    const matchSearch = b.nomeEvento.toLowerCase().includes(searchTerm.toLowerCase()) || b.dataEvento.includes(searchTerm);
+    const matchMonth = filterMonth === "" || b.dataEvento.startsWith(filterMonth);
+    return matchSearch && matchMonth;
+  }).sort((a, b) => new Date(b.dataEvento).getTime() - new Date(a.dataEvento).getTime());
 
   if (loading) {
     return (
@@ -164,6 +166,9 @@ export default function BalancoEventosModule() {
       </div>
     );
   }
+
+  // Obter meses únicos para o filtro
+  const uniqueMonths = Array.from(new Set(balancos.map(b => b.dataEvento.substring(0, 7)))).sort().reverse();
 
   return (
     <div className="p-4 sm:p-8 max-w-7xl mx-auto space-y-6">
@@ -187,8 +192,8 @@ export default function BalancoEventosModule() {
 
       {/* Search & List */}
       <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden shadow-sm">
-        <div className="p-4 border-b border-slate-800 bg-slate-900/50">
-          <div className="relative">
+        <div className="p-4 border-b border-slate-800 bg-slate-900/50 flex flex-col sm:flex-row gap-4">
+          <div className="relative flex-1">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-500" />
             <input
               type="text"
@@ -197,6 +202,26 @@ export default function BalancoEventosModule() {
               onChange={(e) => setSearchTerm(e.target.value)}
               className="w-full pl-10 pr-4 py-2.5 bg-slate-950 border border-slate-800 rounded-lg text-sm text-slate-200 focus:outline-none focus:border-fuchsia-500 focus:ring-1 focus:ring-fuchsia-500 transition-colors"
             />
+          </div>
+          <div className="w-full sm:w-48">
+            <select
+              value={filterMonth}
+              onChange={(e) => setFilterMonth(e.target.value)}
+              className="w-full bg-slate-950 border border-slate-800 text-slate-200 text-sm rounded-lg px-3 py-2.5 focus:outline-none focus:border-fuchsia-500 focus:ring-1 focus:ring-fuchsia-500 transition-colors"
+            >
+              <option value="">Todos os Meses</option>
+              {uniqueMonths.map(m => {
+                if (typeof m !== 'string') return null;
+                const [year, month] = m.split('-');
+                const date = new Date(parseInt(year), parseInt(month) - 1, 1);
+                const monthName = date.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' });
+                return (
+                  <option key={m} value={m}>
+                    {monthName.charAt(0).toUpperCase() + monthName.slice(1)}
+                  </option>
+                );
+              })}
+            </select>
           </div>
         </div>
 

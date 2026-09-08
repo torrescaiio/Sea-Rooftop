@@ -141,6 +141,22 @@ export interface DespesaEvento {
   valor: number;
 }
 
+export interface Limpeza {
+  id: string;
+  nome: string;
+  categoria: 'Químicos' | 'Descartáveis' | 'Utensílios' | 'Outros';
+  fornecedor?: string;
+  createdAt: string;
+}
+
+export interface PedidoLimpeza {
+  id: string;
+  dataPedido: string; // YYYY-MM-DD
+  itens: { limpezaId: string; quantidade: number; nome: string; fornecedor?: string }[];
+  status: 'Pendente' | 'Enviado' | 'Recebido';
+  createdAt: string;
+}
+
 export interface BalancoEvento {
   id: string;
   nomeEvento: string;
