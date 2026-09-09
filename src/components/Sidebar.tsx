@@ -36,6 +36,7 @@ export default function Sidebar({ activeModule, setActiveModule, user, onSignOut
   const menuItems = [
     { id: "dashboard", name: "Visão Geral", icon: LayoutDashboard },
     { id: "equipe", name: "Equipe Operacional", icon: Users },
+    { id: "fichas_tecnicas", name: "Fichas Técnicas", icon: BookOpen },
     { id: "checklist", name: "Checklist Gerencial", icon: CheckSquare },
     { id: "ocorrencias", name: "Ocorrências no Salão", icon: AlertTriangle },
     { id: "manutencao", name: "Manutenção & Facilities", icon: Wrench },

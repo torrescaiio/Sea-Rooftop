@@ -15,6 +15,7 @@ import LimpezaModule from "./components/LimpezaModule";
 import ExtrasModule from "./components/ExtrasModule";
 import RelatoriosVendasModule from "./components/RelatoriosVendasModule";
 import ConfiguracoesModule from "./components/ConfiguracoesModule";
+import FichasTecnicasModule from "./components/FichasTecnicasModule";
 import { appAuth } from "./firebase";
 import { Clock, HelpCircle, LogOut, Sun } from "lucide-react";
 
@@ -87,6 +88,8 @@ export default function App() {
         return <DashboardModule />;
       case "equipe":
         return <EquipeModule />;
+      case "fichas_tecnicas":
+        return <FichasTecnicasModule />;
       case "checklist":
         return <ChecklistModule />;
       case "ocorrencias":
