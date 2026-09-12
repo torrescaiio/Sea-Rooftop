@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { appDb } from "../firebase";
-import { Search, Plus, ChefHat, Trash2, FileText, Check, Coffee, CheckSquare, Square, FlaskConical, User as UserIcon, Package } from "lucide-react";
+import { Search, Plus, ChefHat, Trash2, FileText, Check, Coffee, CheckSquare, Square, FlaskConical, User as UserIcon, Package, ChevronDown, ChevronUp } from "lucide-react";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 
@@ -8,6 +8,8 @@ export interface Ingrediente {
   nome: string;
   quantidade: string;
   isCadastrado?: boolean;
+  custoCompra?: string;
+  unidadeCompra?: string;
 }
 
 export interface CategoriaFicha {
@@ -34,6 +36,8 @@ export interface FichaTecnica {
   dataCriacao?: string;
   createdAt?: string;
   createdBy?: string;
+  rendimentoQtd?: number;
+  rendimentoUnidade?: string;
 }
 
 export default function FichasTecnicasModule() {
@@ -44,20 +48,23 @@ export default function FichasTecnicasModule() {
   const [filterTipo, setFilterTipo] = useState<"bebida" | "comida" | "insumo" | "materias_primas">("bebida");
   const [filterCategoria, setFilterCategoria] = useState<string>("todas");
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [expandedId, setExpandedId] = useState<string | null>(null);
   const [showAddModal, setShowAddModal] = useState(false);
 
   // Form
   const [tipo, setTipo] = useState<"bebida" | "comida" | "insumo">("bebida");
   const [nome, setNome] = useState("");
   const [categoria, setCategoria] = useState("");
+  const [showAddCategoria, setShowAddCategoria] = useState(false);
+  const [novaCategoriaNome, setNovaCategoriaNome] = useState("");
   const [recipiente, setRecipiente] = useState("");
   const [ingredientes, setIngredientes] = useState<Ingrediente[]>([{ nome: "", quantidade: "", isCadastrado: false }]);
   const [modoPreparo, setModoPreparo] = useState("");
   const [categoriasLista, setCategoriasLista] = useState<CategoriaFicha[]>([]);
   
   // Cost tracking for "insumo"
-  const [custoUnitario, setCustoUnitario] = useState<string>("");
-  const [unidadeMedida, setUnidadeMedida] = useState<string>("");
+  const [rendimentoQtd, setRendimentoQtd] = useState<string>("1");
+  const [rendimentoUnidade, setRendimentoUnidade] = useState<string>("l");
 
   useEffect(() => {
     let fichasLoaded = false;
@@ -96,17 +103,17 @@ export default function FichasTecnicasModule() {
   }, []);
 
   const handleAddCategoria = async () => {
-    const nomeCategoria = window.prompt(`Digite o nome da nova categoria para ${tipo === 'bebida' ? 'Bebidas' : tipo === 'comida' ? 'Comidas' : 'Insumos'}:`);
-    if (nomeCategoria && nomeCategoria.trim() !== "") {
+    if (novaCategoriaNome && novaCategoriaNome.trim() !== "") {
       try {
         await appDb.add("fichas_categorias", {
           tipo,
-          nome: nomeCategoria.trim()
+          nome: novaCategoriaNome.trim()
         });
-        setCategoria(nomeCategoria.trim());
+        setCategoria(novaCategoriaNome.trim());
+        setShowAddCategoria(false);
+        setNovaCategoriaNome("");
       } catch (error) {
         console.error("Erro ao adicionar categoria", error);
-        alert("Erro ao adicionar categoria.");
       }
     }
   };
@@ -145,25 +152,41 @@ export default function FichasTecnicasModule() {
         modoPreparo,
         dataCriacao: new Date().toISOString()
       };
+      
+      if (tipo === 'insumo') {
+        novaFicha.rendimentoQtd = parseFloat(rendimentoQtd) || 1;
+        novaFicha.rendimentoUnidade = rendimentoUnidade || 'un';
+      }
 
       await appDb.add("fichas_tecnicas", novaFicha);
       
-      // Auto-extract ingredients into materias_primas if they don't exist
+      // Auto-extract ingredients into materias_primas if they don't exist, and update if cost specified
       for (const ing of ingredientes) {
         if (ing.isCadastrado) continue; // It's an existing Ficha reference
         const nameClean = ing.nome.trim();
         if (!nameClean) continue;
         
         const existing = materiasPrimas.find(m => m.nome.toLowerCase() === nameClean.toLowerCase());
+        
+        const unitMatch = ing.quantidade.match(/^([\d.,]+)\s*([a-zA-Z]+)$/);
+        const defaultUnit = unitMatch ? unitMatch[2].toLowerCase() : 'un';
+        
+        const custoToSave = ing.custoCompra ? parseFloat(ing.custoCompra) : (existing?.custo || 0);
+        const unidadeToSave = ing.unidadeCompra || existing?.unidade || defaultUnit;
+
         if (!existing) {
-           const match = ing.quantidade.match(/^([\d.,]+)\s*([a-zA-Z]+)$/);
-           const unit = match ? match[2].toLowerCase() : 'un';
-           
            await appDb.add("materias_primas", {
               nome: nameClean,
-              custo: 0,
-              unidade: unit
+              custo: custoToSave,
+              unidade: unidadeToSave
            });
+        } else {
+           if (ing.custoCompra && ing.unidadeCompra && (custoToSave !== existing.custo || unidadeToSave !== existing.unidade)) {
+              await appDb.update("materias_primas", existing.id!, {
+                 custo: custoToSave,
+                 unidade: unidadeToSave
+              });
+           }
         }
       }
 
@@ -174,6 +197,8 @@ export default function FichasTecnicasModule() {
       setRecipiente("");
       setIngredientes([{ nome: "", quantidade: "", isCadastrado: false }]);
       setModoPreparo("");
+      setRendimentoQtd("1");
+      setRendimentoUnidade("l");
     } catch (error) {
       console.error(error);
       alert("Erro ao salvar a ficha técnica.");
@@ -291,6 +316,54 @@ export default function FichasTecnicasModule() {
       console.error("Erro ao atualizar matéria-prima:", e);
       alert("Erro ao atualizar matéria-prima.");
     }
+  };
+
+  const calcularCustoFicha = (ficha: FichaTecnica, visited = new Set<string>()): number => {
+    if (visited.has(ficha.id!)) return 0;
+    visited.add(ficha.id!);
+
+    let custoTotal = 0;
+    if (!ficha.ingredientes) return 0;
+
+    ficha.ingredientes.forEach(ing => {
+      const qtdMatch = ing.quantidade.match(/^([\d.,]+)\s*(.*)$/);
+      if (!qtdMatch) return;
+
+      const val = parseFloat(qtdMatch[1].replace(',', '.'));
+      const unit = qtdMatch[2].toLowerCase().trim() || 'un';
+
+      if (ing.isCadastrado) {
+        const subFicha = fichas.find(f => f.nome === ing.nome && f.tipo === 'insumo');
+        if (subFicha) {
+          const subCustoTotal = calcularCustoFicha(subFicha, visited);
+          const rendQtd = subFicha.rendimentoQtd || 1;
+          const rendUnit = (subFicha.rendimentoUnidade || 'un').toLowerCase();
+          const subCustoUnitario = subCustoTotal / rendQtd;
+
+          let multiplier = 1;
+          if (rendUnit === 'kg' && (unit === 'g' || unit === 'gr')) multiplier = 0.001;
+          else if (rendUnit === 'l' && unit === 'ml') multiplier = 0.001;
+          else if (rendUnit === 'g' && unit === 'kg') multiplier = 1000;
+          else if (rendUnit === 'ml' && unit === 'l') multiplier = 1000;
+
+          custoTotal += (val * multiplier) * subCustoUnitario;
+        }
+      } else {
+        const mat = materiasPrimas.find(m => m.nome.toLowerCase() === ing.nome.trim().toLowerCase());
+        if (mat && mat.custo > 0) {
+          const baseUnit = (mat.unidade || 'un').toLowerCase();
+          let multiplier = 1;
+          if (baseUnit === 'kg' && (unit === 'g' || unit === 'gr')) multiplier = 0.001;
+          else if (baseUnit === 'l' && unit === 'ml') multiplier = 0.001;
+          else if (baseUnit === 'g' && unit === 'kg') multiplier = 1000;
+          else if (baseUnit === 'ml' && unit === 'l') multiplier = 1000;
+
+          custoTotal += (val * multiplier) * mat.custo;
+        }
+      }
+    });
+
+    return custoTotal;
   };
 
   if (loading) {
@@ -413,142 +486,138 @@ export default function FichasTecnicasModule() {
               <p className="text-slate-500 mt-1">Crie sua primeira ficha técnica de produção.</p>
             </div>
           ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+            <div className="flex flex-col gap-2">
               {filteredFichas.map(ficha => {
                 const isSelected = selectedIds.includes(ficha.id!);
+                const isExpanded = expandedId === ficha.id;
                 
                 // Calculate dynamic cost
-                let custoTotal = 0;
-                if (ficha.ingredientes) {
-                  ficha.ingredientes.forEach(ing => {
-                    // Try to find the ingredient in Materias Primas
-                    let mat = materiasPrimas.find(m => m.nome.toLowerCase() === ing.nome.trim().toLowerCase());
-                    
-                    if (mat && mat.custo > 0) {
-                      const match = ing.quantidade.match(/^([\d.,]+)\s*(.*)$/);
-                      if (match) {
-                        const val = parseFloat(match[1].replace(',', '.'));
-                        const unit = match[2].toLowerCase().trim() || 'un';
-                        const baseUnit = (mat.unidade || 'un').toLowerCase();
-                        
-                        let multiplier = 1;
-                        if (baseUnit === 'kg' && (unit === 'g' || unit === 'gr')) multiplier = 0.001;
-                        else if (baseUnit === 'l' && unit === 'ml') multiplier = 0.001;
-                        else if (baseUnit === 'g' && unit === 'kg') multiplier = 1000;
-                        else if (baseUnit === 'ml' && unit === 'l') multiplier = 1000;
-                        
-                        custoTotal += (val * multiplier) * mat.custo;
-                      }
-                    } else if (ing.isCadastrado) {
-                      // Optionally, you could recurse for Insumo Fichas here, but usually, raw materials cost covers it.
-                      // For now, if it's a Ficha 'insumo', its cost should also be derived from its raw materials.
-                      const insumoFicha = fichas.find(f => f.nome === ing.nome && f.tipo === 'insumo');
-                      if (insumoFicha && insumoFicha.ingredientes) {
-                         let subCusto = 0;
-                         insumoFicha.ingredientes.forEach(subIng => {
-                            const subMat = materiasPrimas.find(m => m.nome.toLowerCase() === subIng.nome.trim().toLowerCase());
-                            if (subMat && subMat.custo > 0) {
-                               const match = subIng.quantidade.match(/^([\d.,]+)\s*(.*)$/);
-                               if (match) {
-                                  const val = parseFloat(match[1].replace(',', '.'));
-                                  const unit = match[2].toLowerCase().trim() || 'un';
-                                  const baseUnit = (subMat.unidade || 'un').toLowerCase();
-                                  let multiplier = 1;
-                                  if (baseUnit === 'kg' && (unit === 'g' || unit === 'gr')) multiplier = 0.001;
-                                  else if (baseUnit === 'l' && unit === 'ml') multiplier = 0.001;
-                                  else if (baseUnit === 'g' && unit === 'kg') multiplier = 1000;
-                                  else if (baseUnit === 'ml' && unit === 'l') multiplier = 1000;
-                                  subCusto += (val * multiplier) * subMat.custo;
-                               }
-                            }
-                         });
-                         // Add the sub-cost based on the quantity requested vs total yield (if yield is tracked, for now just add subCusto, assuming 1:1 or calculate basic).
-                         // We will leave sub-cost simple or assume it's calculated. For precision, let's just add the raw subCusto.
-                         custoTotal += subCusto;
-                      }
-                    }
-                  });
-                }
-
+                const custoTotal = calcularCustoFicha(ficha);
+                
                 return (
                   <div 
                     key={ficha.id} 
-                    className={`bg-slate-950 border rounded-xl overflow-hidden transition-all duration-200 cursor-pointer ${
+                    className={`bg-slate-950 border rounded-xl overflow-hidden transition-all duration-200 ${
                       isSelected ? "border-emerald-500 ring-1 ring-emerald-500/50" : "border-slate-800 hover:border-slate-700"
                     }`}
-                    onClick={() => handleToggleSelect(ficha.id!)}
                   >
-                    <div className="p-4 border-b border-slate-800/50 flex justify-between items-start">
-                      <div className="flex items-center gap-3">
-                        <div className={`flex items-center justify-center rounded-lg transition-colors ${isSelected ? "text-emerald-500" : "text-slate-500"}`}>
+                    <div 
+                      className="p-4 flex items-center justify-between cursor-pointer"
+                      onClick={() => setExpandedId(isExpanded ? null : (ficha.id || null))}
+                    >
+                      <div className="flex items-center gap-4 flex-1">
+                        <button 
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleToggleSelect(ficha.id!);
+                          }}
+                          className={`flex items-center justify-center rounded-lg transition-colors p-1 hover:bg-slate-800 ${isSelected ? "text-emerald-500" : "text-slate-500"}`}
+                        >
                           {isSelected ? <CheckSquare className="h-5 w-5" /> : <Square className="h-5 w-5" />}
-                        </div>
-                        <div>
-                          <h3 className="font-bold text-white text-lg leading-tight">{ficha.nome}</h3>
-                          <div className="flex flex-wrap gap-2 mt-1.5">
-                            <span className={`inline-flex items-center gap-1 text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded ${
+                        </button>
+                        
+                        <div className="flex-1 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                          <div className="flex items-center gap-3">
+                            <span className={`flex items-center justify-center h-8 w-8 rounded-full ${
                               ficha.tipo === 'bebida' ? 'bg-indigo-500/20 text-indigo-400' :
                               ficha.tipo === 'comida' ? 'bg-orange-500/20 text-orange-400' :
                               'bg-pink-500/20 text-pink-400'
                             }`}>
-                              {ficha.tipo === 'bebida' ? <Coffee className="h-3 w-3" /> :
-                               ficha.tipo === 'comida' ? <ChefHat className="h-3 w-3" /> :
-                               <FlaskConical className="h-3 w-3" />}
-                              {ficha.tipo}
+                              {ficha.tipo === 'bebida' ? <Coffee className="h-4 w-4" /> : 
+                               ficha.tipo === 'comida' ? <ChefHat className="h-4 w-4" /> : 
+                               <FlaskConical className="h-4 w-4" />}
                             </span>
-                            {ficha.categoria && (
-                              <span className="inline-flex items-center gap-1 text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded bg-slate-800 text-slate-400">
-                                {ficha.categoria}
-                              </span>
-                            )}
+                            <div>
+                              <h3 className="font-bold text-white text-base leading-tight">{ficha.nome}</h3>
+                              <div className="flex gap-2 mt-0.5">
+                                {ficha.categoria && (
+                                  <span className="text-[10px] uppercase font-bold tracking-wider text-slate-500">
+                                    {ficha.categoria}
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                          
+                          <div className="flex items-center gap-4 pl-12 sm:pl-0">
                             {custoTotal > 0 && (
-                              <span className="inline-flex items-center gap-1 text-[10px] font-mono font-bold tracking-wider px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                              <span className="inline-flex items-center gap-1 text-xs font-mono font-bold tracking-wider px-2.5 py-1 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
                                 R$ {custoTotal.toFixed(2)}
-                                {ficha.tipo === 'insumo' && ficha.unidadeMedida ? ` / ${ficha.unidadeMedida}` : ''}
+                                {ficha.tipo === 'insumo' && ficha.rendimentoQtd && ficha.rendimentoUnidade ? ` / ${ficha.rendimentoQtd} ${ficha.rendimentoUnidade}` : ''}
                               </span>
                             )}
+                            
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleDelete(ficha.id!);
+                              }}
+                              className="p-1.5 text-slate-500 hover:text-rose-400 hover:bg-rose-500/10 rounded transition-colors hidden sm:block"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </button>
+                            
+                            <div className="text-slate-400">
+                              {isExpanded ? <ChevronUp className="h-5 w-5" /> : <ChevronDown className="h-5 w-5" />}
+                            </div>
                           </div>
                         </div>
                       </div>
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleDelete(ficha.id!);
-                        }}
-                        className="p-1.5 text-slate-500 hover:text-rose-400 hover:bg-rose-500/10 rounded transition-colors"
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </button>
                     </div>
-                    <div className="p-4 bg-slate-900/30">
-                      {ficha.recipiente && (
-                        <div className="mb-4 bg-slate-800/50 p-2 rounded flex items-center justify-between">
-                          <span className="text-xs text-slate-400 font-medium uppercase">Armazenamento/Recipiente:</span>
-                          <span className="text-sm font-medium text-slate-200">{ficha.recipiente}</span>
+                    
+                    {isExpanded && (
+                      <div className="p-5 bg-slate-900/30 border-t border-slate-800/50">
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                          <div>
+                            <div className="flex items-center justify-between mb-3">
+                              <p className="text-xs text-slate-400 font-medium uppercase tracking-wider">Ingredientes / Insumos ({ficha.ingredientes.length})</p>
+                              {ficha.recipiente && (
+                                <span className="text-[10px] text-slate-500 font-medium uppercase bg-slate-800 px-2 py-0.5 rounded">
+                                  Recipiente: {ficha.recipiente}
+                                </span>
+                              )}
+                            </div>
+                            
+                            <ul className="space-y-2">
+                              {ficha.ingredientes.map((ing, idx) => (
+                                <li key={idx} className="flex justify-between text-sm py-1 border-b border-slate-800/50 last:border-0">
+                                  <span className="text-slate-300 flex items-center gap-2">
+                                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500/50"></span>
+                                    {ing.nome}
+                                  </span>
+                                  <span className="text-slate-400 font-mono font-medium">{ing.quantidade}</span>
+                                </li>
+                              ))}
+                            </ul>
+                          </div>
+                          
+                          <div>
+                            <p className="text-xs text-slate-400 font-medium mb-3 uppercase tracking-wider">Modo de Preparo</p>
+                            <div className="bg-slate-900/50 rounded-lg p-4 text-sm text-slate-300 whitespace-pre-wrap border border-slate-800">
+                              {ficha.modoPreparo}
+                            </div>
+                            
+                            <div className="mt-4 pt-3 flex justify-between items-center text-[10px] text-slate-500 uppercase tracking-wider font-mono">
+                              <span className="flex items-center gap-1"><UserIcon className="h-3 w-3" /> Criado por {ficha.createdBy || "Sistema"}</span>
+                              <span>{ficha.dataCriacao ? new Date(ficha.dataCriacao).toLocaleDateString('pt-BR') : ficha.createdAt ? new Date(ficha.createdAt).toLocaleDateString('pt-BR') : "-"}</span>
+                            </div>
+                            
+                            {/* Mobile delete button */}
+                            <div className="mt-4 flex justify-end sm:hidden">
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleDelete(ficha.id!);
+                                }}
+                                className="flex items-center gap-2 px-3 py-1.5 text-xs font-medium text-rose-400 hover:text-white hover:bg-rose-500/20 bg-rose-500/10 rounded transition-colors"
+                              >
+                                <Trash2 className="h-3.5 w-3.5" /> Excluir Ficha
+                              </button>
+                            </div>
+                          </div>
                         </div>
-                      )}
-                      <p className="text-xs text-slate-400 font-medium mb-2 uppercase tracking-wider">Ingredientes ({ficha.ingredientes.length})</p>
-                      <ul className="space-y-1.5 mb-4">
-                        {ficha.ingredientes.slice(0, 3).map((ing, idx) => (
-                          <li key={idx} className="flex justify-between text-sm">
-                            <span className="text-slate-300 truncate pr-2">{ing.nome}</span>
-                            <span className="text-slate-500 font-mono whitespace-nowrap">{ing.quantidade}</span>
-                          </li>
-                        ))}
-                        {ficha.ingredientes.length > 3 && (
-                          <li className="text-xs text-slate-500 italic mt-1">
-                            + {ficha.ingredientes.length - 3} ingrediente(s)...
-                          </li>
-                        )}
-                      </ul>
-                      <p className="text-xs text-slate-400 font-medium mb-1 uppercase tracking-wider">Preparo</p>
-                      <p className="text-sm text-slate-300 line-clamp-2">{ficha.modoPreparo}</p>
-                      
-                      <div className="mt-4 pt-3 border-t border-slate-800/50 flex justify-between items-center text-[10px] text-slate-500 uppercase tracking-wider font-mono">
-                        <span className="flex items-center gap-1"><UserIcon className="h-3 w-3" /> {ficha.createdBy || "Sistema"}</span>
-                        <span>{ficha.dataCriacao ? new Date(ficha.dataCriacao).toLocaleDateString('pt-BR') : ficha.createdAt ? new Date(ficha.createdAt).toLocaleDateString('pt-BR') : "-"}</span>
                       </div>
-                    </div>
+                    )}
                   </div>
                 );
               })}
@@ -677,25 +746,56 @@ export default function FichasTecnicasModule() {
                   </div>
                   <div className="space-y-1.5 md:col-span-2">
                     <label className="text-sm font-medium text-slate-300">Categoria <span className="text-slate-500 font-normal">(Opcional)</span></label>
-                    <div className="flex gap-2">
-                      <select
-                        value={categoria}
-                        onChange={(e) => setCategoria(e.target.value)}
-                        className="flex-1 bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 transition-colors text-sm"
-                      >
-                        <option value="">Nenhuma categoria</option>
-                        {categoriasLista.filter(c => c.tipo === tipo).map(c => (
-                          <option key={c.id || c.nome} value={c.nome}>{c.nome}</option>
-                        ))}
-                      </select>
-                      <button
-                        type="button"
-                        onClick={handleAddCategoria}
-                        className="bg-slate-800 border border-slate-700 hover:border-emerald-500 hover:text-emerald-400 text-slate-400 px-3 py-2 rounded-lg transition-colors flex items-center gap-1 text-sm font-medium"
-                      >
-                        <Plus className="h-4 w-4" /> Nova Categoria
-                      </button>
-                    </div>
+                    {showAddCategoria ? (
+                      <div className="flex gap-2">
+                        <input
+                          type="text"
+                          value={novaCategoriaNome}
+                          onChange={(e) => setNovaCategoriaNome(e.target.value)}
+                          placeholder="Nome da categoria..."
+                          className="flex-1 bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 transition-colors text-sm"
+                          autoFocus
+                        />
+                        <button
+                          type="button"
+                          onClick={handleAddCategoria}
+                          disabled={!novaCategoriaNome.trim()}
+                          className="bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white px-3 py-2 rounded-lg transition-colors flex items-center gap-1 text-sm font-medium"
+                        >
+                          Salvar
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setShowAddCategoria(false);
+                            setNovaCategoriaNome("");
+                          }}
+                          className="bg-slate-800 border border-slate-700 hover:border-slate-600 text-slate-400 px-3 py-2 rounded-lg transition-colors text-sm font-medium"
+                        >
+                          Cancelar
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="flex gap-2">
+                        <select
+                          value={categoria}
+                          onChange={(e) => setCategoria(e.target.value)}
+                          className="flex-1 bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 transition-colors text-sm"
+                        >
+                          <option value="">Nenhuma categoria</option>
+                          {categoriasLista.filter(c => c.tipo === tipo).map(c => (
+                            <option key={c.id || c.nome} value={c.nome}>{c.nome}</option>
+                          ))}
+                        </select>
+                        <button
+                          type="button"
+                          onClick={() => setShowAddCategoria(true)}
+                          className="bg-slate-800 border border-slate-700 hover:border-emerald-500 hover:text-emerald-400 text-slate-400 px-3 py-2 rounded-lg transition-colors flex items-center gap-1 text-sm font-medium"
+                        >
+                          <Plus className="h-4 w-4" /> Nova Categoria
+                        </button>
+                      </div>
+                    )}
                   </div>
                   <div className="space-y-1.5 md:col-span-2">
                     <label className="text-sm font-medium text-slate-300">Recipiente / Armazenamento <span className="text-slate-500 font-normal">(Opcional)</span></label>
@@ -709,35 +809,37 @@ export default function FichasTecnicasModule() {
                   </div>
                   
                   {tipo === 'insumo' && (
-                    <>
-                      <div className="space-y-1.5">
-                        <label className="text-sm font-medium text-slate-300">Custo Total (R$)</label>
-                        <input
-                          type="number"
-                          step="0.01"
-                          value={custoUnitario}
-                          onChange={(e) => setCustoUnitario(e.target.value)}
-                          placeholder="Ex: 15.50"
-                          className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-emerald-500"
-                        />
+                    <div className="md:col-span-2 bg-slate-800/40 p-4 rounded-xl border border-emerald-500/20 my-2">
+                      <h4 className="text-sm font-medium text-emerald-400 mb-3">Rendimento Final (Base para calcular o custo unitário)</h4>
+                      <div className="grid grid-cols-2 gap-4">
+                        <div className="space-y-1.5">
+                          <label className="text-xs font-medium text-slate-300">Quantidade Final</label>
+                          <input
+                            type="number"
+                            step="0.01"
+                            value={rendimentoQtd}
+                            onChange={(e) => setRendimentoQtd(e.target.value)}
+                            placeholder="Ex: 1.5"
+                            className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-emerald-500"
+                          />
+                        </div>
+                        <div className="space-y-1.5">
+                          <label className="text-xs font-medium text-slate-300">Unidade de Medida</label>
+                          <select
+                            value={rendimentoUnidade}
+                            onChange={(e) => setRendimentoUnidade(e.target.value)}
+                            className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-emerald-500"
+                          >
+                            <option value="l">Litro (L)</option>
+                            <option value="kg">Quilograma (Kg)</option>
+                            <option value="ml">Mililitro (ml)</option>
+                            <option value="g">Grama (g)</option>
+                            <option value="un">Unidade (Un)</option>
+                            <option value="cx">Caixa (Cx)</option>
+                          </select>
+                        </div>
                       </div>
-                      <div className="space-y-1.5">
-                        <label className="text-sm font-medium text-slate-300">Unidade de Medida</label>
-                        <select
-                          value={unidadeMedida}
-                          onChange={(e) => setUnidadeMedida(e.target.value)}
-                          className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-emerald-500"
-                        >
-                          <option value="">Selecione...</option>
-                          <option value="kg">Quilograma (Kg)</option>
-                          <option value="g">Grama (g)</option>
-                          <option value="l">Litro (L)</option>
-                          <option value="ml">Mililitro (ml)</option>
-                          <option value="un">Unidade (Un)</option>
-                          <option value="cx">Caixa (Cx)</option>
-                        </select>
-                      </div>
-                    </>
+                    </div>
                   )}
                 </div>
 
@@ -763,49 +865,79 @@ export default function FichasTecnicasModule() {
                   </div>
                   <div className="space-y-2">
                     {ingredientes.map((ing, idx) => (
-                      <div key={idx} className="flex gap-2 items-start">
-                        <div className="flex-1">
-                          {ing.isCadastrado ? (
-                            <select
-                              required
-                              value={ing.nome}
-                              onChange={(e) => handleIngredienteChange(idx, 'nome', e.target.value)}
-                              className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 text-sm"
-                            >
-                              <option value="" disabled>Selecione um insumo/preparo...</option>
-                              {fichas.filter(f => f.tipo === 'insumo').map((f) => (
-                                <option key={f.id || f.nome} value={f.nome}>{f.nome}</option>
-                              ))}
-                            </select>
-                          ) : (
+                      <div key={idx} className="flex flex-col gap-2 p-3 bg-slate-900/50 border border-slate-800 rounded-lg">
+                        <div className="flex gap-2 items-start">
+                          <div className="flex-1">
+                            {ing.isCadastrado ? (
+                              <select
+                                required
+                                value={ing.nome}
+                                onChange={(e) => handleIngredienteChange(idx, 'nome', e.target.value)}
+                                className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 text-sm"
+                              >
+                                <option value="" disabled>Selecione um insumo/preparo...</option>
+                                {fichas.filter(f => f.tipo === 'insumo').map((f) => (
+                                  <option key={f.id || f.nome} value={f.nome}>{f.nome}</option>
+                                ))}
+                              </select>
+                            ) : (
+                              <input
+                                type="text"
+                                required
+                                placeholder="Nome do ingrediente (Ex: Açúcar)"
+                                value={ing.nome}
+                                onChange={(e) => handleIngredienteChange(idx, 'nome', e.target.value)}
+                                className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 text-sm"
+                              />
+                            )}
+                          </div>
+                          <div className="w-1/3">
                             <input
                               type="text"
                               required
-                              placeholder="Nome do ingrediente (Ex: Gelo, Sal...)"
-                              value={ing.nome}
-                              onChange={(e) => handleIngredienteChange(idx, 'nome', e.target.value)}
+                              placeholder="Qtd Receita (Ex: 500g)"
+                              value={ing.quantidade}
+                              onChange={(e) => handleIngredienteChange(idx, 'quantidade', e.target.value)}
                               className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 text-sm"
                             />
-                          )}
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveIngrediente(idx)}
+                            disabled={ingredientes.length === 1}
+                            className="p-2 text-slate-500 hover:text-rose-400 bg-slate-800 rounded-lg border border-slate-700 disabled:opacity-50 transition-colors mt-0"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </button>
                         </div>
-                        <div className="w-1/3">
-                          <input
-                            type="text"
-                            required
-                            placeholder="Qtd (Ex: 30ml)"
-                            value={ing.quantidade}
-                            onChange={(e) => handleIngredienteChange(idx, 'quantidade', e.target.value)}
-                            className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 text-sm"
-                          />
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() => handleRemoveIngrediente(idx)}
-                          disabled={ingredientes.length === 1}
-                          className="p-2 text-slate-500 hover:text-rose-400 bg-slate-800 rounded-lg border border-slate-700 disabled:opacity-50 transition-colors mt-0"
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </button>
+                        
+                        {!ing.isCadastrado && ing.nome.trim() !== '' && (
+                          <div className="flex gap-2 items-center pl-1 border-l-2 border-emerald-500/50 mt-1 ml-1">
+                            <span className="text-xs text-slate-400 whitespace-nowrap">Preço: R$</span>
+                            <input 
+                              type="number" step="0.01" 
+                              placeholder="0.00" 
+                              value={ing.custoCompra || ''} 
+                              onChange={(e) => handleIngredienteChange(idx, 'custoCompra', e.target.value)}
+                              className="w-20 bg-slate-950 border border-slate-700 rounded text-xs px-2 py-1 text-white focus:border-emerald-500 focus:outline-none"
+                            />
+                            <span className="text-xs text-slate-400 whitespace-nowrap">por</span>
+                            <select 
+                              value={ing.unidadeCompra || ''} 
+                              onChange={(e) => handleIngredienteChange(idx, 'unidadeCompra', e.target.value)}
+                              className="w-24 bg-slate-950 border border-slate-700 rounded text-xs px-2 py-1 text-white focus:border-emerald-500 focus:outline-none"
+                            >
+                              <option value="">(Unidade)</option>
+                              <option value="kg">Kg</option>
+                              <option value="l">Litro (L)</option>
+                              <option value="un">Unid.</option>
+                              <option value="cx">Caixa</option>
+                              <option value="g">Grama (g)</option>
+                              <option value="ml">Mililitro</option>
+                            </select>
+                            <span className="text-[10px] text-slate-500 italic ml-2 hidden sm:inline-block">Isso atualizará o custo do item nas Matérias-Primas.</span>
+                          </div>
+                        )}
                       </div>
                     ))}
                   </div>
