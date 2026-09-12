@@ -15,7 +15,8 @@ import {
   Tag,
   Kanban,
   ListTodo,
-  FileDown
+  FileDown,
+  User
 } from "lucide-react";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
@@ -375,6 +376,10 @@ export default function ChecklistModule() {
                                 {task.observacoes}
                               </p>
                             )}
+                            
+                            <div className="flex items-center text-[9px] text-slate-500 font-mono tracking-wider mt-2">
+                              <span className="flex items-center gap-1"><User className="h-3 w-3" /> {task.createdBy || "Sistema"}</span>
+                            </div>
                           </div>
 
                           {/* Controls bar */}
@@ -475,6 +480,9 @@ export default function ChecklistModule() {
                                  👤 {task.responsavel}
                                </span>
                             )}
+                            <span className="text-[10px] text-slate-500 font-mono tracking-wider flex items-center gap-1 pl-2 border-l border-slate-800">
+                              <User className="w-3 h-3" /> {task.createdBy || "Sistema"}
+                            </span>
                           </div>
                           {(task.link || task.observacoes) && (
                             <div className="mt-2 space-y-1">

@@ -29,11 +29,7 @@ interface SidebarProps {
   onSignOut: () => void;
 }
 
-export default function Sidebar({ activeModule, setActiveModule, user, onSignOut }: SidebarProps) {
-  const [mobileOpen, setMobileOpen] = React.useState(false);
-  const firebaseConnected = isFirebaseActive();
-
-  const menuItems = [
+export const MENU_ITEMS = [
     { id: "dashboard", name: "Visão Geral", icon: LayoutDashboard },
     { id: "equipe", name: "Equipe Operacional", icon: Users },
     { id: "fichas_tecnicas", name: "Fichas Técnicas", icon: BookOpen },
@@ -50,6 +46,15 @@ export default function Sidebar({ activeModule, setActiveModule, user, onSignOut
     { id: "relatorios", name: "Relatórios & KPIs", icon: FileSpreadsheet },
     { id: "configuracoes", name: "Configurações", icon: Settings },
   ];
+
+export default function Sidebar({ activeModule, setActiveModule, user, onSignOut }: SidebarProps) {
+  const [mobileOpen, setMobileOpen] = React.useState(false);
+
+  const firebaseConnected = isFirebaseActive();
+
+  const menuItems = user?.allowedModules && user.allowedModules !== "ALL" 
+    ? MENU_ITEMS.filter(m => user.allowedModules.includes(m.id))
+    : MENU_ITEMS;
 
   const sidebarContent = (
     <div className="flex flex-col h-full bg-black lg:bg-transparent lg:border-r-0 border-r border-slate-800 text-slate-100 font-sans">

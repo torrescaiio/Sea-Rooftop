@@ -310,6 +310,10 @@ export default function OcorrenciasModule() {
                       </div>
                     )}
                   </div>
+                  
+                  <div className="flex items-center text-[10px] text-slate-500 font-mono uppercase tracking-wider pt-2 mt-2 border-t border-slate-800/50">
+                    <span className="flex items-center gap-1.5"><User className="h-3 w-3" /> Registrado por: {log.createdBy || "Sistema"}</span>
+                  </div>
                 </div>
               </div>
 

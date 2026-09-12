@@ -16,7 +16,7 @@ import ExtrasModule from "./components/ExtrasModule";
 import RelatoriosVendasModule from "./components/RelatoriosVendasModule";
 import ConfiguracoesModule from "./components/ConfiguracoesModule";
 import FichasTecnicasModule from "./components/FichasTecnicasModule";
-import { appAuth } from "./firebase";
+import { appAuth, appDb } from "./firebase";
 import { Clock, HelpCircle, LogOut, Sun } from "lucide-react";
 
 export default function App() {
@@ -29,7 +29,24 @@ export default function App() {
 
   useEffect(() => {
     // Sincroniza estado de autenticação real / simulado
-    const unsubscribe = appAuth.onAuthStateChange((user) => {
+    const unsubscribe = appAuth.onAuthStateChange(async (user) => {
+      if (user) {
+        try {
+          const roleDoc = await appDb.get("user_roles", user.uid);
+          if (roleDoc && roleDoc.allowedModules) {
+            user.allowedModules = roleDoc.allowedModules;
+            if (roleDoc.allowedModules !== "ALL" && !roleDoc.allowedModules.includes("dashboard") && roleDoc.allowedModules.length > 0) {
+              setActiveModule(roleDoc.allowedModules[0]);
+            }
+          } else {
+            // Default to ALL for existing users who don't have a role doc
+            user.allowedModules = "ALL";
+          }
+        } catch (error) {
+          console.error("Error fetching user role", error);
+          user.allowedModules = "ALL";
+        }
+      }
       setActiveUser(user);
       setCheckingAuth(false);
     });

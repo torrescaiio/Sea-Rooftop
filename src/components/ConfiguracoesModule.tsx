@@ -1,10 +1,12 @@
 import React, { useState, useEffect } from "react";
-import { appAuth } from "../firebase";
-import { Lock, UserPlus, ShieldCheck, AlertCircle, Save, User as UserIcon, Database } from "lucide-react";
+import { appAuth, appDb } from "../firebase";
+import { Lock, UserPlus, ShieldCheck, AlertCircle, Save, User as UserIcon, Database, CheckSquare } from "lucide-react";
+import { MENU_ITEMS } from "./Sidebar";
 
 export default function ConfiguracoesModule({ user }: { user?: any }) {
   const [newEmail, setNewEmail] = useState("");
   const [newPassword, setNewPassword] = useState("");
+  const [selectedModules, setSelectedModules] = useState<string[]>(MENU_ITEMS.map(m => m.id));
   const [createLoad, setCreateLoad] = useState(false);
   const [createMsg, setCreateMsg] = useState<{ type: "success" | "error"; text: string } | null>(null);
 
@@ -18,12 +20,29 @@ export default function ConfiguracoesModule({ user }: { user?: any }) {
   const [profileLoad, setProfileLoad] = useState(false);
   const [profileMsg, setProfileMsg] = useState<{ type: "success" | "error"; text: string } | null>(null);
 
+  const [usersList, setUsersList] = useState<any[]>([]);
+  const [usersLoad, setUsersLoad] = useState(true);
+
   useEffect(() => {
     if (user) {
       setProfileName(user.displayName || user.name || "");
       setProfileRole(user.role || "");
     }
   }, [user]);
+
+  useEffect(() => {
+    const fetchUsers = async () => {
+      try {
+        const roles = await appDb.getAll("user_roles");
+        setUsersList(roles);
+      } catch (err) {
+        console.error("Error fetching users list:", err);
+      } finally {
+        setUsersLoad(false);
+      }
+    };
+    fetchUsers();
+  }, []);
 
   const [migrationLoad, setMigrationLoad] = useState(false);
   const [migrationMsg, setMigrationMsg] = useState<{ type: "success" | "error"; text: string } | null>(null);
@@ -58,10 +77,17 @@ export default function ConfiguracoesModule({ user }: { user?: any }) {
     setCreateLoad(true);
     setCreateMsg(null);
     try {
-      await appAuth.signUp(newEmail.trim(), newPassword);
+      const userCredential = await appAuth.signUp(newEmail.trim(), newPassword);
+      // Save permissions to database using the uid
+      await appDb.set("user_roles", userCredential.uid, {
+        email: newEmail.trim(),
+        allowedModules: selectedModules,
+        createdAt: new Date().toISOString()
+      });
       setCreateMsg({ type: "success", text: "Conta criada com sucesso! Você foi conectado à nova conta." });
       setNewEmail("");
       setNewPassword("");
+      setSelectedModules(MENU_ITEMS.map(m => m.id));
       setTimeout(() => {
         window.location.reload();
       }, 1500);
@@ -321,6 +347,37 @@ export default function ConfiguracoesModule({ user }: { user?: any }) {
                 className="w-full bg-slate-950 border border-slate-850 rounded-lg p-2.5 text-slate-200 text-sm focus:border-emerald-500 focus:outline-none"
               />
             </div>
+            <div className="md:col-span-2">
+              <label className="block text-xs font-mono uppercase tracking-wider text-slate-400 mb-2">
+                Permissões de Acesso (Módulos)
+              </label>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 bg-slate-950 border border-slate-800 rounded-xl p-4 max-h-[250px] overflow-y-auto">
+                {MENU_ITEMS.map(module => (
+                  <label key={module.id} className="flex items-center space-x-3 cursor-pointer group">
+                    <div className="relative flex items-center justify-center">
+                      <input
+                        type="checkbox"
+                        checked={selectedModules.includes(module.id)}
+                        onChange={(e) => {
+                          if (e.target.checked) {
+                            setSelectedModules([...selectedModules, module.id]);
+                          } else {
+                            setSelectedModules(selectedModules.filter(m => m !== module.id));
+                          }
+                        }}
+                        className="peer appearance-none w-5 h-5 rounded-md border border-slate-700 bg-slate-900 checked:bg-emerald-500 checked:border-emerald-500 transition-colors"
+                      />
+                      <CheckSquare className="absolute w-3.5 h-3.5 text-white opacity-0 peer-checked:opacity-100 pointer-events-none transition-opacity" />
+                    </div>
+                    <div className="flex items-center space-x-2 text-sm text-slate-300 group-hover:text-slate-100 transition-colors">
+                      <module.icon className="h-4 w-4 text-slate-500 group-hover:text-emerald-400 transition-colors" />
+                      <span>{module.name}</span>
+                    </div>
+                  </label>
+                ))}
+              </div>
+            </div>
+            
             <div className="pt-2 md:col-span-2">
               <button
                 type="submit"
@@ -333,6 +390,78 @@ export default function ConfiguracoesModule({ user }: { user?: any }) {
           </form>
         </div>
 
+      </div>
+
+      {/* Users List (Admin Audit) */}
+      <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-sm mt-6">
+        <div className="flex items-center space-x-3 mb-6">
+          <div className="p-2.5 bg-indigo-500/10 rounded-xl">
+            <UserIcon className="h-5 w-5 text-indigo-400" />
+          </div>
+          <div>
+            <h2 className="text-base font-semibold text-white">Usuários Cadastrados</h2>
+            <p className="text-xs text-slate-400">Listagem de usuários e suas permissões</p>
+          </div>
+        </div>
+
+        {usersLoad ? (
+          <div className="text-sm text-slate-400 p-4">Carregando usuários...</div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-left border-collapse">
+              <thead>
+                <tr className="border-b border-slate-800">
+                  <th className="py-3 px-4 text-xs font-mono uppercase tracking-wider text-slate-400">E-mail / UID</th>
+                  <th className="py-3 px-4 text-xs font-mono uppercase tracking-wider text-slate-400">Permissões</th>
+                  <th className="py-3 px-4 text-xs font-mono uppercase tracking-wider text-slate-400 text-right">Data de Criação</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-800/50">
+                {usersList.length === 0 ? (
+                  <tr>
+                    <td colSpan={3} className="py-4 px-4 text-sm text-slate-500 text-center">Nenhum usuário extra encontrado no banco de permissões.</td>
+                  </tr>
+                ) : (
+                  usersList.map((u, i) => (
+                    <tr key={u.id || i} className="hover:bg-slate-800/30 transition-colors">
+                      <td className="py-3 px-4">
+                        <p className="text-sm text-slate-200 font-medium">{u.email}</p>
+                        <p className="text-xs text-slate-500 font-mono mt-0.5">{u.id}</p>
+                      </td>
+                      <td className="py-3 px-4">
+                        <div className="flex flex-wrap gap-1.5 max-w-sm">
+                          {Array.isArray(u.allowedModules) ? (
+                            u.allowedModules.length === MENU_ITEMS.length ? (
+                              <span className="text-[10px] px-2 py-0.5 bg-emerald-500/20 text-emerald-400 rounded border border-emerald-500/20 font-medium">Acesso Total</span>
+                            ) : (
+                              u.allowedModules.map((m: string) => {
+                                const mod = MENU_ITEMS.find(x => x.id === m);
+                                return (
+                                  <span key={m} className="text-[10px] px-2 py-0.5 bg-slate-800 text-slate-300 rounded border border-slate-700">
+                                    {mod ? mod.name : m}
+                                  </span>
+                                )
+                              })
+                            )
+                          ) : (
+                            <span className="text-[10px] px-2 py-0.5 bg-emerald-500/20 text-emerald-400 rounded border border-emerald-500/20 font-medium">Acesso Total</span>
+                          )}
+                        </div>
+                      </td>
+                      <td className="py-3 px-4 text-right">
+                        {u.createdAt ? (
+                          <span className="text-xs text-slate-400">{new Date(u.createdAt).toLocaleDateString('pt-BR')}</span>
+                        ) : (
+                          <span className="text-xs text-slate-600">-</span>
+                        )}
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
 
       {/* Database Operations */}

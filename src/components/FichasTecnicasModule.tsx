@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { appDb } from "../firebase";
-import { Search, Plus, ChefHat, Trash2, FileText, Check, Coffee, CheckSquare, Square, FlaskConical } from "lucide-react";
+import { Search, Plus, ChefHat, Trash2, FileText, Check, Coffee, CheckSquare, Square, FlaskConical, User as UserIcon } from "lucide-react";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 
@@ -411,6 +411,11 @@ export default function FichasTecnicasModule() {
                       </ul>
                       <p className="text-xs text-slate-400 font-medium mb-1 uppercase tracking-wider">Preparo</p>
                       <p className="text-sm text-slate-300 line-clamp-2">{ficha.modoPreparo}</p>
+                      
+                      <div className="mt-4 pt-3 border-t border-slate-800/50 flex justify-between items-center text-[10px] text-slate-500 uppercase tracking-wider font-mono">
+                        <span className="flex items-center gap-1"><UserIcon className="h-3 w-3" /> {ficha.createdBy || "Sistema"}</span>
+                        <span>{ficha.dataCriacao ? new Date(ficha.dataCriacao).toLocaleDateString('pt-BR') : ficha.createdAt ? new Date(ficha.createdAt).toLocaleDateString('pt-BR') : "-"}</span>
+                      </div>
                     </div>
                   </div>
                 );

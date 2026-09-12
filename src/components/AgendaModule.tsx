@@ -18,7 +18,8 @@ import {
   FileDown,
   Pencil,
   ChevronLeft,
-  ChevronRight
+  ChevronRight,
+  User
 } from "lucide-react";
 
 import jsPDF from "jspdf";
@@ -519,6 +520,10 @@ export default function AgendaModule() {
                     <p className="text-xs text-slate-505 italic text-center py-2">Nenhum rider de som ou luz registrado.</p>
                   )}
                 </div>
+              </div>
+
+              <div className="flex items-center text-[10px] text-slate-500 font-mono uppercase tracking-wider">
+                <span className="flex items-center gap-1.5"><User className="h-3 w-3" /> Registrado por: {activeDetailEvent.createdBy || "Sistema"}</span>
               </div>
 
               {/* Quick inline status update controls inside expanded dialog */}

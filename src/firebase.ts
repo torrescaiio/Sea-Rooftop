@@ -19,6 +19,8 @@ import {
   updateDoc, 
   deleteDoc, 
   doc, 
+  setDoc,
+  getDoc,
   onSnapshot, 
   getDocs, 
   query, 
@@ -149,9 +151,11 @@ export const appDb = {
 
   // Add Item
   add: async (collectionName: string, itemData: any): Promise<any> => {
+    const userEmail = auth.currentUser?.email || "Sistema";
     const enrichedData = {
       ...itemData,
-      createdAt: new Date().toISOString()
+      createdAt: new Date().toISOString(),
+      createdBy: userEmail
     };
     try {
       const docRef = await addDoc(collection(db, collectionName), enrichedData);
@@ -169,6 +173,32 @@ export const appDb = {
       await updateDoc(docRef, updates);
     } catch (error) {
       console.error(`Error updating in ${collectionName} (id: ${id}) with Firestore:`, error);
+      throw error;
+    }
+  },
+
+  // Set Item (overwrite/create specific ID)
+  set: async (collectionName: string, id: string, itemData: any): Promise<void> => {
+    try {
+      const docRef = doc(db, collectionName, id);
+      await setDoc(docRef, itemData);
+    } catch (error) {
+      console.error(`Error setting doc in ${collectionName} (id: ${id}) with Firestore:`, error);
+      throw error;
+    }
+  },
+
+  // Get Single Document
+  get: async (collectionName: string, id: string): Promise<any | null> => {
+    try {
+      const docRef = doc(db, collectionName, id);
+      const snap = await getDoc(docRef);
+      if (snap.exists()) {
+        return { id: snap.id, ...snap.data() };
+      }
+      return null;
+    } catch (error) {
+      console.error(`Error getting doc from ${collectionName} (id: ${id}) with Firestore:`, error);
       throw error;
     }
   },
