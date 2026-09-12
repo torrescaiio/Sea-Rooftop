@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { appDb } from "../firebase";
-import { Search, Plus, ChefHat, Trash2, FileText, Check, Coffee, CheckSquare, Square, FlaskConical, User as UserIcon } from "lucide-react";
+import { Search, Plus, ChefHat, Trash2, FileText, Check, Coffee, CheckSquare, Square, FlaskConical, User as UserIcon, Package } from "lucide-react";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 
@@ -16,6 +16,13 @@ export interface CategoriaFicha {
   nome: string;
 }
 
+export interface MateriaPrima {
+  id?: string;
+  nome: string;
+  custo: number;
+  unidade: string;
+}
+
 export interface FichaTecnica {
   id?: string;
   tipo: "bebida" | "comida" | "insumo";
@@ -24,14 +31,17 @@ export interface FichaTecnica {
   recipiente?: string;
   ingredientes: Ingrediente[];
   modoPreparo: string;
-  dataCriacao: string;
+  dataCriacao?: string;
+  createdAt?: string;
+  createdBy?: string;
 }
 
 export default function FichasTecnicasModule() {
   const [fichas, setFichas] = useState<FichaTecnica[]>([]);
+  const [materiasPrimas, setMateriasPrimas] = useState<MateriaPrima[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
-  const [filterTipo, setFilterTipo] = useState<"bebida" | "comida" | "insumo">("bebida");
+  const [filterTipo, setFilterTipo] = useState<"bebida" | "comida" | "insumo" | "materias_primas">("bebida");
   const [filterCategoria, setFilterCategoria] = useState<string>("todas");
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [showAddModal, setShowAddModal] = useState(false);
@@ -41,29 +51,47 @@ export default function FichasTecnicasModule() {
   const [nome, setNome] = useState("");
   const [categoria, setCategoria] = useState("");
   const [recipiente, setRecipiente] = useState("");
-  const [ingredientes, setIngredientes] = useState<Ingrediente[]>([{ nome: "", quantidade: "" }]);
+  const [ingredientes, setIngredientes] = useState<Ingrediente[]>([{ nome: "", quantidade: "", isCadastrado: false }]);
   const [modoPreparo, setModoPreparo] = useState("");
   const [categoriasLista, setCategoriasLista] = useState<CategoriaFicha[]>([]);
+  
+  // Cost tracking for "insumo"
+  const [custoUnitario, setCustoUnitario] = useState<string>("");
+  const [unidadeMedida, setUnidadeMedida] = useState<string>("");
 
   useEffect(() => {
     let fichasLoaded = false;
     let categoriasLoaded = false;
+    let materiasLoaded = false;
     
+    const checkLoading = () => {
+      if (fichasLoaded && categoriasLoaded && materiasLoaded) {
+        setLoading(false);
+      }
+    };
+
     const unsubscribeFichas = appDb.subscribe("fichas_tecnicas", (data) => {
       setFichas(data as FichaTecnica[]);
       fichasLoaded = true;
-      if (categoriasLoaded) setLoading(false);
+      checkLoading();
     });
 
     const unsubscribeCategorias = appDb.subscribe("fichas_categorias", (data) => {
       setCategoriasLista(data as CategoriaFicha[]);
       categoriasLoaded = true;
-      if (fichasLoaded) setLoading(false);
+      checkLoading();
+    });
+
+    const unsubscribeMaterias = appDb.subscribe("materias_primas", (data) => {
+      setMateriasPrimas(data as MateriaPrima[]);
+      materiasLoaded = true;
+      checkLoading();
     });
 
     return () => {
       unsubscribeFichas();
       unsubscribeCategorias();
+      unsubscribeMaterias();
     };
   }, []);
 
@@ -108,7 +136,7 @@ export default function FichasTecnicasModule() {
     }
 
     try {
-      await appDb.add("fichas_tecnicas", {
+      const novaFicha: any = {
         tipo,
         nome,
         categoria,
@@ -116,13 +144,35 @@ export default function FichasTecnicasModule() {
         ingredientes,
         modoPreparo,
         dataCriacao: new Date().toISOString()
-      });
+      };
+
+      await appDb.add("fichas_tecnicas", novaFicha);
+      
+      // Auto-extract ingredients into materias_primas if they don't exist
+      for (const ing of ingredientes) {
+        if (ing.isCadastrado) continue; // It's an existing Ficha reference
+        const nameClean = ing.nome.trim();
+        if (!nameClean) continue;
+        
+        const existing = materiasPrimas.find(m => m.nome.toLowerCase() === nameClean.toLowerCase());
+        if (!existing) {
+           const match = ing.quantidade.match(/^([\d.,]+)\s*([a-zA-Z]+)$/);
+           const unit = match ? match[2].toLowerCase() : 'un';
+           
+           await appDb.add("materias_primas", {
+              nome: nameClean,
+              custo: 0,
+              unidade: unit
+           });
+        }
+      }
+
       setShowAddModal(false);
       setTipo("bebida");
       setNome("");
       setCategoria("");
       setRecipiente("");
-      setIngredientes([{ nome: "", quantidade: "" }]);
+      setIngredientes([{ nome: "", quantidade: "", isCadastrado: false }]);
       setModoPreparo("");
     } catch (error) {
       console.error(error);
@@ -229,9 +279,18 @@ export default function FichasTecnicasModule() {
 
   const sugestoesInsumos = fichas.filter(f => f.tipo === "insumo").map(f => f.nome).sort();
 
-  const handleSetFilterTipo = (novoTipo: "bebida" | "comida" | "insumo") => {
+  const handleSetFilterTipo = (novoTipo: "bebida" | "comida" | "insumo" | "materias_primas") => {
     setFilterTipo(novoTipo);
     setFilterCategoria("todas");
+  };
+
+  const handleUpdateMateriaPrima = async (id: string, custo: number, unidade: string) => {
+    try {
+      await appDb.update("materias_primas", id, { custo, unidade });
+    } catch (e) {
+      console.error("Erro ao atualizar matéria-prima:", e);
+      alert("Erro ao atualizar matéria-prima.");
+    }
   };
 
   if (loading) {
@@ -306,9 +365,22 @@ export default function FichasTecnicasModule() {
             <FlaskConical className="h-4 w-4" />
             Insumos / Preparos
           </button>
+          <button
+            onClick={() => handleSetFilterTipo("materias_primas")}
+            className={`flex-1 min-w-[140px] py-4 text-sm font-medium transition-colors border-b-2 flex items-center justify-center gap-2 ${
+              filterTipo === "materias_primas" 
+                ? "border-emerald-500 text-emerald-400 bg-emerald-500/5" 
+                : "border-transparent text-slate-400 hover:text-slate-200 hover:bg-slate-800/50"
+            }`}
+          >
+            <Package className="h-4 w-4" />
+            Matérias-Primas
+          </button>
         </div>
 
-        <div className="p-4 border-b border-slate-800 bg-slate-900/50 flex flex-col sm:flex-row gap-4">
+        {filterTipo !== 'materias_primas' && (
+        <>
+          <div className="p-4 border-b border-slate-800 bg-slate-900/50 flex flex-col sm:flex-row gap-4">
           <div className="relative flex-1">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-500" />
             <input
@@ -344,6 +416,60 @@ export default function FichasTecnicasModule() {
             <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
               {filteredFichas.map(ficha => {
                 const isSelected = selectedIds.includes(ficha.id!);
+                
+                // Calculate dynamic cost
+                let custoTotal = 0;
+                if (ficha.ingredientes) {
+                  ficha.ingredientes.forEach(ing => {
+                    // Try to find the ingredient in Materias Primas
+                    let mat = materiasPrimas.find(m => m.nome.toLowerCase() === ing.nome.trim().toLowerCase());
+                    
+                    if (mat && mat.custo > 0) {
+                      const match = ing.quantidade.match(/^([\d.,]+)\s*(.*)$/);
+                      if (match) {
+                        const val = parseFloat(match[1].replace(',', '.'));
+                        const unit = match[2].toLowerCase().trim() || 'un';
+                        const baseUnit = (mat.unidade || 'un').toLowerCase();
+                        
+                        let multiplier = 1;
+                        if (baseUnit === 'kg' && (unit === 'g' || unit === 'gr')) multiplier = 0.001;
+                        else if (baseUnit === 'l' && unit === 'ml') multiplier = 0.001;
+                        else if (baseUnit === 'g' && unit === 'kg') multiplier = 1000;
+                        else if (baseUnit === 'ml' && unit === 'l') multiplier = 1000;
+                        
+                        custoTotal += (val * multiplier) * mat.custo;
+                      }
+                    } else if (ing.isCadastrado) {
+                      // Optionally, you could recurse for Insumo Fichas here, but usually, raw materials cost covers it.
+                      // For now, if it's a Ficha 'insumo', its cost should also be derived from its raw materials.
+                      const insumoFicha = fichas.find(f => f.nome === ing.nome && f.tipo === 'insumo');
+                      if (insumoFicha && insumoFicha.ingredientes) {
+                         let subCusto = 0;
+                         insumoFicha.ingredientes.forEach(subIng => {
+                            const subMat = materiasPrimas.find(m => m.nome.toLowerCase() === subIng.nome.trim().toLowerCase());
+                            if (subMat && subMat.custo > 0) {
+                               const match = subIng.quantidade.match(/^([\d.,]+)\s*(.*)$/);
+                               if (match) {
+                                  const val = parseFloat(match[1].replace(',', '.'));
+                                  const unit = match[2].toLowerCase().trim() || 'un';
+                                  const baseUnit = (subMat.unidade || 'un').toLowerCase();
+                                  let multiplier = 1;
+                                  if (baseUnit === 'kg' && (unit === 'g' || unit === 'gr')) multiplier = 0.001;
+                                  else if (baseUnit === 'l' && unit === 'ml') multiplier = 0.001;
+                                  else if (baseUnit === 'g' && unit === 'kg') multiplier = 1000;
+                                  else if (baseUnit === 'ml' && unit === 'l') multiplier = 1000;
+                                  subCusto += (val * multiplier) * subMat.custo;
+                               }
+                            }
+                         });
+                         // Add the sub-cost based on the quantity requested vs total yield (if yield is tracked, for now just add subCusto, assuming 1:1 or calculate basic).
+                         // We will leave sub-cost simple or assume it's calculated. For precision, let's just add the raw subCusto.
+                         custoTotal += subCusto;
+                      }
+                    }
+                  });
+                }
+
                 return (
                   <div 
                     key={ficha.id} 
@@ -373,6 +499,12 @@ export default function FichasTecnicasModule() {
                             {ficha.categoria && (
                               <span className="inline-flex items-center gap-1 text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded bg-slate-800 text-slate-400">
                                 {ficha.categoria}
+                              </span>
+                            )}
+                            {custoTotal > 0 && (
+                              <span className="inline-flex items-center gap-1 text-[10px] font-mono font-bold tracking-wider px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                                R$ {custoTotal.toFixed(2)}
+                                {ficha.tipo === 'insumo' && ficha.unidadeMedida ? ` / ${ficha.unidadeMedida}` : ''}
                               </span>
                             )}
                           </div>
@@ -423,6 +555,68 @@ export default function FichasTecnicasModule() {
             </div>
           )}
         </div>
+        </>
+        )}
+
+        {filterTipo === 'materias_primas' && (
+          <div className="p-6">
+            <div className="overflow-x-auto">
+              <table className="w-full text-left border-collapse">
+                <thead>
+                  <tr className="border-b border-slate-800 text-xs uppercase tracking-wider text-slate-400">
+                    <th className="p-3 font-medium">Nome do Insumo (Auto-extraído)</th>
+                    <th className="p-3 font-medium">Custo Referência (R$)</th>
+                    <th className="p-3 font-medium">Unidade de Medida</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-800/50">
+                  {materiasPrimas.length === 0 ? (
+                    <tr>
+                      <td colSpan={3} className="p-12 text-center">
+                        <Package className="h-12 w-12 text-slate-700 mx-auto mb-4" />
+                        <h3 className="text-lg font-medium text-slate-300">Nenhum insumo detectado</h3>
+                        <p className="text-slate-500 mt-1">Crie fichas técnicas e adicione ingredientes para preencher esta lista automaticamente.</p>
+                      </td>
+                    </tr>
+                  ) : materiasPrimas.map(mat => (
+                    <tr key={mat.id} className="hover:bg-slate-800/20 transition-colors group">
+                      <td className="p-3">
+                        <span className="text-sm font-bold text-slate-200">{mat.nome}</span>
+                      </td>
+                      <td className="p-3">
+                        <div className="flex items-center gap-2">
+                          <span className="text-slate-500 text-sm">R$</span>
+                          <input 
+                            type="number"
+                            step="0.01"
+                            defaultValue={mat.custo || 0}
+                            onBlur={(e) => handleUpdateMateriaPrima(mat.id!, parseFloat(e.target.value) || 0, mat.unidade)}
+                            className="w-24 bg-slate-900 border border-slate-700 rounded px-2 py-1.5 text-white font-mono focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 focus:outline-none transition-colors"
+                          />
+                        </div>
+                      </td>
+                      <td className="p-3">
+                        <select
+                          defaultValue={mat.unidade || "un"}
+                          onChange={(e) => handleUpdateMateriaPrima(mat.id!, mat.custo, e.target.value)}
+                          className="w-full max-w-[180px] bg-slate-900 border border-slate-700 rounded px-3 py-1.5 text-white focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 focus:outline-none transition-colors"
+                        >
+                          <option value="kg">Quilograma (Kg)</option>
+                          <option value="g">Grama (g)</option>
+                          <option value="l">Litro (L)</option>
+                          <option value="ml">Mililitro (ml)</option>
+                          <option value="un">Unidade (Un)</option>
+                          <option value="cx">Caixa (Cx)</option>
+                          <option value="garrafa">Garrafa</option>
+                        </select>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
       </div>
 
       {showAddModal && (
@@ -513,6 +707,38 @@ export default function FichasTecnicasModule() {
                       className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 transition-colors"
                     />
                   </div>
+                  
+                  {tipo === 'insumo' && (
+                    <>
+                      <div className="space-y-1.5">
+                        <label className="text-sm font-medium text-slate-300">Custo Total (R$)</label>
+                        <input
+                          type="number"
+                          step="0.01"
+                          value={custoUnitario}
+                          onChange={(e) => setCustoUnitario(e.target.value)}
+                          placeholder="Ex: 15.50"
+                          className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-emerald-500"
+                        />
+                      </div>
+                      <div className="space-y-1.5">
+                        <label className="text-sm font-medium text-slate-300">Unidade de Medida</label>
+                        <select
+                          value={unidadeMedida}
+                          onChange={(e) => setUnidadeMedida(e.target.value)}
+                          className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-emerald-500"
+                        >
+                          <option value="">Selecione...</option>
+                          <option value="kg">Quilograma (Kg)</option>
+                          <option value="g">Grama (g)</option>
+                          <option value="l">Litro (L)</option>
+                          <option value="ml">Mililitro (ml)</option>
+                          <option value="un">Unidade (Un)</option>
+                          <option value="cx">Caixa (Cx)</option>
+                        </select>
+                      </div>
+                    </>
+                  )}
                 </div>
 
                 <div className="space-y-3">
