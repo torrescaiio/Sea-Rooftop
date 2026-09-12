@@ -8,6 +8,7 @@ export interface Ingrediente {
   nome: string;
   quantidade: string;
   isCadastrado?: boolean;
+  origem?: 'manual' | 'insumo' | 'materia_prima';
   custoCompra?: string;
   unidadeCompra?: string;
 }
@@ -50,6 +51,7 @@ export default function FichasTecnicasModule() {
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [showAddModal, setShowAddModal] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
 
   // Form
   const [tipo, setTipo] = useState<"bebida" | "comida" | "insumo">("bebida");
@@ -58,13 +60,49 @@ export default function FichasTecnicasModule() {
   const [showAddCategoria, setShowAddCategoria] = useState(false);
   const [novaCategoriaNome, setNovaCategoriaNome] = useState("");
   const [recipiente, setRecipiente] = useState("");
-  const [ingredientes, setIngredientes] = useState<Ingrediente[]>([{ nome: "", quantidade: "", isCadastrado: false }]);
+  const [ingredientes, setIngredientes] = useState<Ingrediente[]>([{ nome: "", quantidade: "", isCadastrado: false, origem: 'manual' }]);
   const [modoPreparo, setModoPreparo] = useState("");
   const [categoriasLista, setCategoriasLista] = useState<CategoriaFicha[]>([]);
   
   // Cost tracking for "insumo"
   const [rendimentoQtd, setRendimentoQtd] = useState<string>("1");
   const [rendimentoUnidade, setRendimentoUnidade] = useState<string>("l");
+
+  const resetForm = () => {
+    setEditingId(null);
+    setTipo("bebida");
+    setNome("");
+    setCategoria("");
+    setRecipiente("");
+    setIngredientes([{ nome: "", quantidade: "", isCadastrado: false, origem: 'manual' }]);
+    setModoPreparo("");
+    setRendimentoQtd("1");
+    setRendimentoUnidade("l");
+  };
+
+  const handleOpenAdd = () => {
+    resetForm();
+    setShowAddModal(true);
+  };
+
+  const handleEdit = (ficha: FichaTecnica) => {
+    setEditingId(ficha.id!);
+    setTipo(ficha.tipo);
+    setNome(ficha.nome);
+    setCategoria(ficha.categoria || "");
+    setRecipiente(ficha.recipiente || "");
+    setIngredientes(ficha.ingredientes.map(i => ({
+      ...i,
+      origem: i.origem || (i.isCadastrado ? 'insumo' : 'manual')
+    })));
+    setModoPreparo(ficha.modoPreparo);
+    if (ficha.tipo === 'insumo') {
+      setRendimentoQtd(ficha.rendimentoQtd?.toString() || "1");
+      setRendimentoUnidade(ficha.rendimentoUnidade || "l");
+    }
+    setShowAddModal(true);
+    setExpandedId(null);
+  };
 
   useEffect(() => {
     let fichasLoaded = false;
@@ -118,8 +156,13 @@ export default function FichasTecnicasModule() {
     }
   };
 
-  const handleAddIngrediente = (isCadastrado: boolean = false) => {
-    setIngredientes([...ingredientes, { nome: "", quantidade: "", isCadastrado }]);
+  const handleAddIngrediente = (origem: 'manual' | 'insumo' | 'materia_prima' = 'manual') => {
+    setIngredientes([...ingredientes, { 
+      nome: "", 
+      quantidade: "", 
+      isCadastrado: origem === 'insumo', 
+      origem 
+    }]);
   };
 
   const handleIngredienteChange = (index: number, field: keyof Ingrediente, value: string) => {
@@ -157,12 +200,21 @@ export default function FichasTecnicasModule() {
         novaFicha.rendimentoQtd = parseFloat(rendimentoQtd) || 1;
         novaFicha.rendimentoUnidade = rendimentoUnidade || 'un';
       }
-
-      await appDb.add("fichas_tecnicas", novaFicha);
+      
+      if (editingId) {
+        // preserve original creation date
+        const existingFicha = fichas.find(f => f.id === editingId);
+        if (existingFicha && existingFicha.dataCriacao) {
+          novaFicha.dataCriacao = existingFicha.dataCriacao;
+        }
+        await appDb.update("fichas_tecnicas", editingId, novaFicha);
+      } else {
+        await appDb.add("fichas_tecnicas", novaFicha);
+      }
       
       // Auto-extract ingredients into materias_primas if they don't exist, and update if cost specified
       for (const ing of ingredientes) {
-        if (ing.isCadastrado) continue; // It's an existing Ficha reference
+        if (ing.origem === 'insumo' || ing.isCadastrado) continue; // It's an existing Ficha reference
         const nameClean = ing.nome.trim();
         if (!nameClean) continue;
         
@@ -174,13 +226,13 @@ export default function FichasTecnicasModule() {
         const custoToSave = ing.custoCompra ? parseFloat(ing.custoCompra) : (existing?.custo || 0);
         const unidadeToSave = ing.unidadeCompra || existing?.unidade || defaultUnit;
 
-        if (!existing) {
+        if (!existing && ing.origem !== 'materia_prima') {
            await appDb.add("materias_primas", {
               nome: nameClean,
               custo: custoToSave,
               unidade: unidadeToSave
            });
-        } else {
+        } else if (existing) {
            if (ing.custoCompra && ing.unidadeCompra && (custoToSave !== existing.custo || unidadeToSave !== existing.unidade)) {
               await appDb.update("materias_primas", existing.id!, {
                  custo: custoToSave,
@@ -191,14 +243,7 @@ export default function FichasTecnicasModule() {
       }
 
       setShowAddModal(false);
-      setTipo("bebida");
-      setNome("");
-      setCategoria("");
-      setRecipiente("");
-      setIngredientes([{ nome: "", quantidade: "", isCadastrado: false }]);
-      setModoPreparo("");
-      setRendimentoQtd("1");
-      setRendimentoUnidade("l");
+      resetForm();
     } catch (error) {
       console.error(error);
       alert("Erro ao salvar a ficha técnica.");
@@ -394,7 +439,7 @@ export default function FichasTecnicasModule() {
             Exportar Selecionadas ({selectedIds.length})
           </button>
           <button 
-            onClick={() => setShowAddModal(true)}
+            onClick={handleOpenAdd}
             className="flex-1 sm:flex-none bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-2.5 rounded-lg text-sm font-medium transition-colors flex items-center justify-center gap-2"
           >
             <Plus className="h-4 w-4" />
@@ -492,7 +537,10 @@ export default function FichasTecnicasModule() {
                 const isExpanded = expandedId === ficha.id;
                 
                 // Calculate dynamic cost
-                const custoTotal = calcularCustoFicha(ficha);
+                let custoExibicao = calcularCustoFicha(ficha);
+                if (ficha.tipo === 'insumo' && ficha.rendimentoQtd) {
+                  custoExibicao = custoExibicao / ficha.rendimentoQtd;
+                }
                 
                 return (
                   <div 
@@ -540,12 +588,23 @@ export default function FichasTecnicasModule() {
                           </div>
                           
                           <div className="flex items-center gap-4 pl-12 sm:pl-0">
-                            {custoTotal > 0 && (
+                            {custoExibicao > 0 && (
                               <span className="inline-flex items-center gap-1 text-xs font-mono font-bold tracking-wider px-2.5 py-1 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-                                R$ {custoTotal.toFixed(2)}
-                                {ficha.tipo === 'insumo' && ficha.rendimentoQtd && ficha.rendimentoUnidade ? ` / ${ficha.rendimentoQtd} ${ficha.rendimentoUnidade}` : ''}
+                                R$ {custoExibicao.toFixed(2)}
+                                {ficha.tipo === 'insumo' && ficha.rendimentoUnidade ? ` / ${ficha.rendimentoUnidade}` : ''}
                               </span>
                             )}
+                            
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleEdit(ficha);
+                              }}
+                              className="p-1.5 text-slate-500 hover:text-emerald-400 hover:bg-emerald-500/10 rounded transition-colors hidden sm:block"
+                              title="Editar Ficha"
+                            >
+                              <FileText className="h-4 w-4" />
+                            </button>
                             
                             <button
                               onClick={(e) => {
@@ -553,6 +612,7 @@ export default function FichasTecnicasModule() {
                                 handleDelete(ficha.id!);
                               }}
                               className="p-1.5 text-slate-500 hover:text-rose-400 hover:bg-rose-500/10 rounded transition-colors hidden sm:block"
+                              title="Excluir Ficha"
                             >
                               <Trash2 className="h-4 w-4" />
                             </button>
@@ -602,8 +662,17 @@ export default function FichasTecnicasModule() {
                               <span>{ficha.dataCriacao ? new Date(ficha.dataCriacao).toLocaleDateString('pt-BR') : ficha.createdAt ? new Date(ficha.createdAt).toLocaleDateString('pt-BR') : "-"}</span>
                             </div>
                             
-                            {/* Mobile delete button */}
-                            <div className="mt-4 flex justify-end sm:hidden">
+                            {/* Mobile action buttons */}
+                            <div className="mt-4 flex justify-end gap-2 sm:hidden">
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleEdit(ficha);
+                                }}
+                                className="flex items-center gap-2 px-3 py-1.5 text-xs font-medium text-emerald-400 hover:text-white hover:bg-emerald-500/20 bg-emerald-500/10 rounded transition-colors"
+                              >
+                                <FileText className="h-3.5 w-3.5" /> Editar
+                              </button>
                               <button
                                 onClick={(e) => {
                                   e.stopPropagation();
@@ -611,7 +680,7 @@ export default function FichasTecnicasModule() {
                                 }}
                                 className="flex items-center gap-2 px-3 py-1.5 text-xs font-medium text-rose-400 hover:text-white hover:bg-rose-500/20 bg-rose-500/10 rounded transition-colors"
                               >
-                                <Trash2 className="h-3.5 w-3.5" /> Excluir Ficha
+                                <Trash2 className="h-3.5 w-3.5" /> Excluir
                               </button>
                             </div>
                           </div>
@@ -693,8 +762,8 @@ export default function FichasTecnicasModule() {
           <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-2xl shadow-2xl flex flex-col max-h-[90vh]">
             <div className="p-6 border-b border-slate-800 flex justify-between items-center bg-slate-900 rounded-t-2xl shrink-0">
               <div>
-                <h2 className="text-xl font-bold text-white uppercase tracking-wider">Nova Ficha Técnica</h2>
-                <p className="text-sm text-slate-400 mt-1">Cadastro de ficha de produção.</p>
+                <h2 className="text-xl font-bold text-white uppercase tracking-wider">{editingId ? "Editar Ficha Técnica" : "Nova Ficha Técnica"}</h2>
+                <p className="text-sm text-slate-400 mt-1">{editingId ? "Atualizar detalhes da ficha existente." : "Cadastro de ficha de produção."}</p>
               </div>
             </div>
             
@@ -846,17 +915,24 @@ export default function FichasTecnicasModule() {
                 <div className="space-y-3">
                   <div className="flex justify-between items-center">
                     <label className="text-sm font-medium text-slate-300">Ingredientes / Insumos</label>
-                    <div className="flex gap-2">
+                    <div className="flex gap-2 flex-wrap justify-end">
                       <button
                         type="button"
-                        onClick={() => handleAddIngrediente(false)}
+                        onClick={() => handleAddIngrediente('manual')}
                         className="text-xs text-emerald-400 hover:text-emerald-300 font-medium flex items-center gap-1 bg-emerald-500/10 px-2 py-1 rounded transition-colors"
                       >
-                        <Plus className="h-3 w-3" /> Ingrediente Manual
+                        <Plus className="h-3 w-3" /> Manual
                       </button>
                       <button
                         type="button"
-                        onClick={() => handleAddIngrediente(true)}
+                        onClick={() => handleAddIngrediente('materia_prima')}
+                        className="text-xs text-amber-400 hover:text-amber-300 font-medium flex items-center gap-1 bg-amber-500/10 px-2 py-1 rounded transition-colors"
+                      >
+                        <Package className="h-3 w-3" /> Puxar Matéria-Prima
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleAddIngrediente('insumo')}
                         className="text-xs text-indigo-400 hover:text-indigo-300 font-medium flex items-center gap-1 bg-indigo-500/10 px-2 py-1 rounded transition-colors"
                       >
                         <FlaskConical className="h-3 w-3" /> Puxar Insumo
@@ -868,7 +944,7 @@ export default function FichasTecnicasModule() {
                       <div key={idx} className="flex flex-col gap-2 p-3 bg-slate-900/50 border border-slate-800 rounded-lg">
                         <div className="flex gap-2 items-start">
                           <div className="flex-1">
-                            {ing.isCadastrado ? (
+                            {ing.origem === 'insumo' || ing.isCadastrado ? (
                               <select
                                 required
                                 value={ing.nome}
@@ -878,6 +954,18 @@ export default function FichasTecnicasModule() {
                                 <option value="" disabled>Selecione um insumo/preparo...</option>
                                 {fichas.filter(f => f.tipo === 'insumo').map((f) => (
                                   <option key={f.id || f.nome} value={f.nome}>{f.nome}</option>
+                                ))}
+                              </select>
+                            ) : ing.origem === 'materia_prima' ? (
+                              <select
+                                required
+                                value={ing.nome}
+                                onChange={(e) => handleIngredienteChange(idx, 'nome', e.target.value)}
+                                className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500 text-sm"
+                              >
+                                <option value="" disabled>Selecione uma matéria-prima...</option>
+                                {materiasPrimas.map((m) => (
+                                  <option key={m.id} value={m.nome}>{m.nome}</option>
                                 ))}
                               </select>
                             ) : (
@@ -911,7 +999,7 @@ export default function FichasTecnicasModule() {
                           </button>
                         </div>
                         
-                        {!ing.isCadastrado && ing.nome.trim() !== '' && (
+                        {(!ing.isCadastrado && ing.origem !== 'materia_prima') && ing.nome.trim() !== '' && (
                           <div className="flex gap-2 items-center pl-1 border-l-2 border-emerald-500/50 mt-1 ml-1">
                             <span className="text-xs text-slate-400 whitespace-nowrap">Preço: R$</span>
                             <input 
@@ -958,7 +1046,7 @@ export default function FichasTecnicasModule() {
               <div className="p-6 border-t border-slate-800 flex justify-end gap-3 bg-slate-900 sticky bottom-0 z-10 shrink-0 rounded-b-2xl">
                 <button
                   type="button"
-                  onClick={() => setShowAddModal(false)}
+                  onClick={() => { setShowAddModal(false); resetForm(); }}
                   className="px-4 py-2 text-sm font-medium text-slate-300 hover:text-white transition-colors"
                 >
                   Cancelar
