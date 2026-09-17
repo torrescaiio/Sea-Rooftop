@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { appDb } from "../firebase";
 import { Search, Plus, ChefHat, Trash2, FileText, Check, Coffee, CheckSquare, Square, FlaskConical, User as UserIcon, Package, ChevronDown, ChevronUp } from "lucide-react";
 import jsPDF from "jspdf";
@@ -40,6 +40,88 @@ export interface FichaTecnica {
   rendimentoQtd?: number;
   rendimentoUnidade?: string;
 }
+
+const SearchableSelect = ({ 
+  value, 
+  onChange, 
+  options, 
+  placeholder, 
+  color = 'amber' 
+}: { 
+  value: string; 
+  onChange: (val: string) => void; 
+  options: { label: string; value: string }[]; 
+  placeholder: string;
+  color?: 'amber' | 'indigo' | 'emerald';
+}) => {
+  const [isOpen, setIsOpen] = useState(false);
+  const [search, setSearch] = useState('');
+  const wrapperRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (wrapperRef.current && !wrapperRef.current.contains(event.target as Node)) {
+        setIsOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  const filteredOptions = options.filter(opt => 
+    opt.label.toLowerCase().includes(search.toLowerCase())
+  );
+  // Sort alphabetically
+  filteredOptions.sort((a, b) => a.label.localeCompare(b.label));
+
+  const selectedOption = options.find(o => o.value === value);
+  const borderRingClass = color === 'amber' ? 'ring-1 ring-amber-500 border-amber-500' : 'ring-1 ring-indigo-500 border-indigo-500';
+
+  return (
+    <div className="relative w-full" ref={wrapperRef}>
+       <div 
+         className={`w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white cursor-text text-sm flex justify-between items-center ${isOpen ? borderRingClass : ''}`}
+         onClick={() => setIsOpen(true)}
+       >
+         {isOpen ? (
+           <input 
+             type="text" 
+             className="bg-transparent border-none outline-none w-full text-white text-sm" 
+             value={search}
+             onChange={(e) => setSearch(e.target.value)}
+             autoFocus
+             placeholder="Buscar..."
+           />
+         ) : (
+           <span className={selectedOption ? "text-white" : "text-slate-400"}>{selectedOption ? selectedOption.label : placeholder}</span>
+         )}
+         <ChevronDown className="h-4 w-4 text-slate-400 ml-2 shrink-0" />
+       </div>
+
+       {isOpen && (
+         <div className="absolute z-50 w-full mt-1 bg-slate-800 border border-slate-700 rounded-lg shadow-xl max-h-60 overflow-y-auto">
+           {filteredOptions.length > 0 ? (
+             filteredOptions.map((opt) => (
+               <div
+                 key={opt.value}
+                 className={`px-3 py-2 text-sm cursor-pointer hover:bg-slate-700 ${value === opt.value ? 'bg-slate-700 text-white' : 'text-slate-300'}`}
+                 onClick={() => {
+                   onChange(opt.value);
+                   setSearch('');
+                   setIsOpen(false);
+                 }}
+               >
+                 {opt.label}
+               </div>
+             ))
+           ) : (
+             <div className="px-3 py-2 text-sm text-slate-500">Nenhum resultado</div>
+           )}
+         </div>
+       )}
+    </div>
+  );
+};
 
 export default function FichasTecnicasModule() {
   const [fichas, setFichas] = useState<FichaTecnica[]>([]);
@@ -363,6 +445,45 @@ export default function FichasTecnicasModule() {
     }
   };
 
+  const calcularCustoIngrediente = (ing: Ingrediente, visited = new Set<string>()): number => {
+    const qtdMatch = ing.quantidade.match(/^([\d.,]+)\s*(.*)$/);
+    if (!qtdMatch) return 0;
+
+    const val = parseFloat(qtdMatch[1].replace(',', '.'));
+    const unit = qtdMatch[2].toLowerCase().trim() || 'un';
+
+    if (ing.origem === 'insumo' || ing.isCadastrado) {
+      const subFicha = fichas.find(f => f.nome === ing.nome && f.tipo === 'insumo');
+      if (subFicha) {
+        const subCustoTotal = calcularCustoFicha(subFicha, visited);
+        const rendQtd = subFicha.rendimentoQtd || 1;
+        const rendUnit = (subFicha.rendimentoUnidade || 'un').toLowerCase();
+        const subCustoUnitario = subCustoTotal / rendQtd;
+
+        let multiplier = 1;
+        if (rendUnit === 'kg' && (unit === 'g' || unit === 'gr')) multiplier = 0.001;
+        else if (rendUnit === 'l' && unit === 'ml') multiplier = 0.001;
+        else if (rendUnit === 'g' && unit === 'kg') multiplier = 1000;
+        else if (rendUnit === 'ml' && unit === 'l') multiplier = 1000;
+
+        return (val * multiplier) * subCustoUnitario;
+      }
+    } else {
+      const mat = materiasPrimas.find(m => m.nome.toLowerCase() === ing.nome.trim().toLowerCase());
+      if (mat && mat.custo > 0) {
+        const baseUnit = (mat.unidade || 'un').toLowerCase();
+        let multiplier = 1;
+        if (baseUnit === 'kg' && (unit === 'g' || unit === 'gr')) multiplier = 0.001;
+        else if (baseUnit === 'l' && unit === 'ml') multiplier = 0.001;
+        else if (baseUnit === 'g' && unit === 'kg') multiplier = 1000;
+        else if (baseUnit === 'ml' && unit === 'l') multiplier = 1000;
+
+        return (val * multiplier) * mat.custo;
+      }
+    }
+    return 0;
+  };
+
   const calcularCustoFicha = (ficha: FichaTecnica, visited = new Set<string>()): number => {
     if (visited.has(ficha.id!)) return 0;
     visited.add(ficha.id!);
@@ -371,41 +492,7 @@ export default function FichasTecnicasModule() {
     if (!ficha.ingredientes) return 0;
 
     ficha.ingredientes.forEach(ing => {
-      const qtdMatch = ing.quantidade.match(/^([\d.,]+)\s*(.*)$/);
-      if (!qtdMatch) return;
-
-      const val = parseFloat(qtdMatch[1].replace(',', '.'));
-      const unit = qtdMatch[2].toLowerCase().trim() || 'un';
-
-      if (ing.isCadastrado) {
-        const subFicha = fichas.find(f => f.nome === ing.nome && f.tipo === 'insumo');
-        if (subFicha) {
-          const subCustoTotal = calcularCustoFicha(subFicha, visited);
-          const rendQtd = subFicha.rendimentoQtd || 1;
-          const rendUnit = (subFicha.rendimentoUnidade || 'un').toLowerCase();
-          const subCustoUnitario = subCustoTotal / rendQtd;
-
-          let multiplier = 1;
-          if (rendUnit === 'kg' && (unit === 'g' || unit === 'gr')) multiplier = 0.001;
-          else if (rendUnit === 'l' && unit === 'ml') multiplier = 0.001;
-          else if (rendUnit === 'g' && unit === 'kg') multiplier = 1000;
-          else if (rendUnit === 'ml' && unit === 'l') multiplier = 1000;
-
-          custoTotal += (val * multiplier) * subCustoUnitario;
-        }
-      } else {
-        const mat = materiasPrimas.find(m => m.nome.toLowerCase() === ing.nome.trim().toLowerCase());
-        if (mat && mat.custo > 0) {
-          const baseUnit = (mat.unidade || 'un').toLowerCase();
-          let multiplier = 1;
-          if (baseUnit === 'kg' && (unit === 'g' || unit === 'gr')) multiplier = 0.001;
-          else if (baseUnit === 'l' && unit === 'ml') multiplier = 0.001;
-          else if (baseUnit === 'g' && unit === 'kg') multiplier = 1000;
-          else if (baseUnit === 'ml' && unit === 'l') multiplier = 1000;
-
-          custoTotal += (val * multiplier) * mat.custo;
-        }
-      }
+      custoTotal += calcularCustoIngrediente(ing, visited);
     });
 
     return custoTotal;
@@ -639,15 +726,25 @@ export default function FichasTecnicasModule() {
                             </div>
                             
                             <ul className="space-y-2">
-                              {ficha.ingredientes.map((ing, idx) => (
-                                <li key={idx} className="flex justify-between text-sm py-1 border-b border-slate-800/50 last:border-0">
+                              {ficha.ingredientes.map((ing, idx) => {
+                                const custoIngrediente = calcularCustoIngrediente(ing, new Set<string>());
+                                return (
+                                <li key={idx} className="flex justify-between items-center text-sm py-1 border-b border-slate-800/50 last:border-0">
                                   <span className="text-slate-300 flex items-center gap-2">
                                     <span className="w-1.5 h-1.5 rounded-full bg-emerald-500/50"></span>
                                     {ing.nome}
                                   </span>
-                                  <span className="text-slate-400 font-mono font-medium">{ing.quantidade}</span>
+                                  <div className="flex items-center gap-4">
+                                    <span className="text-slate-400 font-mono font-medium">{ing.quantidade}</span>
+                                    {custoIngrediente > 0 ? (
+                                      <span className="text-emerald-400 font-mono text-xs w-20 text-right">R$ {custoIngrediente.toFixed(2)}</span>
+                                    ) : (
+                                      <span className="text-slate-600 font-mono text-xs w-20 text-right">-</span>
+                                    )}
+                                  </div>
                                 </li>
-                              ))}
+                                );
+                              })}
                             </ul>
                           </div>
                           
@@ -945,29 +1042,21 @@ export default function FichasTecnicasModule() {
                         <div className="flex gap-2 items-start">
                           <div className="flex-1">
                             {ing.origem === 'insumo' || ing.isCadastrado ? (
-                              <select
-                                required
+                              <SearchableSelect
                                 value={ing.nome}
-                                onChange={(e) => handleIngredienteChange(idx, 'nome', e.target.value)}
-                                className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 text-sm"
-                              >
-                                <option value="" disabled>Selecione um insumo/preparo...</option>
-                                {fichas.filter(f => f.tipo === 'insumo').map((f) => (
-                                  <option key={f.id || f.nome} value={f.nome}>{f.nome}</option>
-                                ))}
-                              </select>
+                                onChange={(val) => handleIngredienteChange(idx, 'nome', val)}
+                                placeholder="Selecione um insumo/preparo..."
+                                color="indigo"
+                                options={fichas.filter(f => f.tipo === 'insumo').map(f => ({ label: f.nome, value: f.nome }))}
+                              />
                             ) : ing.origem === 'materia_prima' ? (
-                              <select
-                                required
+                              <SearchableSelect
                                 value={ing.nome}
-                                onChange={(e) => handleIngredienteChange(idx, 'nome', e.target.value)}
-                                className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500 text-sm"
-                              >
-                                <option value="" disabled>Selecione uma matéria-prima...</option>
-                                {materiasPrimas.map((m) => (
-                                  <option key={m.id} value={m.nome}>{m.nome}</option>
-                                ))}
-                              </select>
+                                onChange={(val) => handleIngredienteChange(idx, 'nome', val)}
+                                placeholder="Selecione uma matéria-prima..."
+                                color="amber"
+                                options={materiasPrimas.map(m => ({ label: m.nome, value: m.nome }))}
+                              />
                             ) : (
                               <input
                                 type="text"
