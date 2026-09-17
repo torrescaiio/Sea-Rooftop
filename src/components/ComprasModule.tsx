@@ -1,15 +1,26 @@
 import React, { useEffect, useState, useMemo } from 'react';
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from 'recharts';
-import { Loader2, AlertCircle, Calendar, ArrowLeft } from 'lucide-react';
+import { Loader2, AlertCircle, Calendar, ChevronRight, Search, ArrowLeft } from 'lucide-react';
+
+interface TipoData {
+  total: number;
+  itens: Record<string, number>;
+}
+
+interface SubcategoriaData {
+  total: number;
+  tipos: Record<string, TipoData>;
+}
 
 interface CategoriaData {
   total: number;
-  subcategorias: Record<string, number>;
+  subcategorias: Record<string, SubcategoriaData>;
 }
 
 interface PeriodData {
   total: number;
   categorias: Record<string, CategoriaData>;
+  itensBusca: Record<string, number>;
 }
 
 interface ComprasData {
@@ -46,7 +57,12 @@ export default function ComprasModule() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [mesSelecionado, setMesSelecionado] = useState<string>('geral');
-  const [categoriaExpandida, setCategoriaExpandida] = useState<string | null>(null);
+  const [termoBusca, setTermoBusca] = useState<string>("");
+  
+  // Níveis de Drill-down
+  const [catAtiva, setCatAtiva] = useState<string | null>(null);
+  const [subAtiva, setSubAtiva] = useState<string | null>(null);
+  const [tipoAtivo, setTipoAtivo] = useState<string | null>(null);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -72,9 +88,11 @@ export default function ComprasModule() {
     fetchData();
   }, []);
 
-  // Reset drill-down when month changes
+  // Reset do drill-down ao trocar de mês
   useEffect(() => {
-    setCategoriaExpandida(null);
+    setCatAtiva(null);
+    setSubAtiva(null);
+    setTipoAtivo(null);
   }, [mesSelecionado]);
 
   const formatCurrency = (value: number) => {
@@ -94,22 +112,39 @@ export default function ComprasModule() {
     if (!currentPeriodData) return [];
     const { total: periodTotal, categorias } = currentPeriodData;
 
-    if (categoriaExpandida && categorias[categoriaExpandida]) {
-      // Drill-down: Show Subcategorias for the selected category
-      const catData = categorias[categoriaExpandida];
-      const catTotal = catData.total;
-      const subcategorias = catData.subcategorias || {};
-
-      const formattedData = Object.entries(subcategorias).map(([name, value]) => ({
-        name,
-        value: value as number,
-        percentage: catTotal > 0 ? ((value as number) / catTotal) * 100 : 0
-      }));
+    if (catAtiva && categorias[catAtiva]) {
+      const catData = categorias[catAtiva];
       
-      formattedData.sort((a, b) => b.value - a.value);
-      return formattedData;
+      if (subAtiva && catData.subcategorias && catData.subcategorias[subAtiva]) {
+        // NÍVEL 3: Tipos
+        const subData = catData.subcategorias[subAtiva];
+        const subTotal = subData.total;
+        const tipos = subData.tipos || {};
+
+        const formattedData = Object.entries(tipos).map(([name, tipoData]) => ({
+          name,
+          value: tipoData.total,
+          percentage: subTotal > 0 ? (tipoData.total / subTotal) * 100 : 0
+        }));
+        
+        formattedData.sort((a, b) => b.value - a.value);
+        return formattedData;
+      } else {
+        // NÍVEL 2: Subcategorias
+        const catTotal = catData.total;
+        const subcategorias = catData.subcategorias || {};
+
+        const formattedData = Object.entries(subcategorias).map(([name, subCatData]) => ({
+          name,
+          value: subCatData.total,
+          percentage: catTotal > 0 ? (subCatData.total / catTotal) * 100 : 0
+        }));
+        
+        formattedData.sort((a, b) => b.value - a.value);
+        return formattedData;
+      }
     } else {
-      // Overview: Show Categorias
+      // NÍVEL 1: Categorias
       const formattedData = Object.entries(categorias || {}).map(([name, catData]) => ({
         name,
         value: catData.total,
@@ -119,7 +154,39 @@ export default function ComprasModule() {
       formattedData.sort((a, b) => b.value - a.value);
       return formattedData;
     }
-  }, [currentPeriodData, categoriaExpandida]);
+  }, [currentPeriodData, catAtiva, subAtiva]);
+
+  const searchResults = useMemo(() => {
+    if (!currentPeriodData || !termoBusca.trim()) return [];
+    
+    // Leitura atualizada para itensBusca
+    const itens = currentPeriodData.itensBusca || {};
+    const termLower = termoBusca.toLowerCase().trim();
+    
+    const results = Object.entries(itens)
+      .filter(([nome]) => nome.toLowerCase().includes(termLower))
+      .map(([nome, valor]) => ({ nome, valor: valor as number }));
+      
+    // Sort descending by cost
+    results.sort((a, b) => b.valor - a.valor);
+    
+    return results;
+  }, [currentPeriodData, termoBusca]);
+
+  const level4Items = useMemo(() => {
+    if (!currentPeriodData || !catAtiva || !subAtiva || !tipoAtivo) return [];
+    const cat = currentPeriodData.categorias[catAtiva];
+    if (!cat) return [];
+    const sub = cat.subcategorias?.[subAtiva];
+    if (!sub) return [];
+    const tipo = sub.tipos?.[tipoAtivo];
+    if (!tipo) return [];
+
+    const results = Object.entries(tipo.itens || {}).map(([nome, valor]) => ({ nome, valor }));
+    // Ordena do item com maior valor para o menor
+    results.sort((a, b) => b.valor - a.valor);
+    return results;
+  }, [currentPeriodData, catAtiva, subAtiva, tipoAtivo]);
 
   const availableMonths = useMemo(() => {
     if (!data || !data.meses) return [];
@@ -128,15 +195,26 @@ export default function ComprasModule() {
 
   const headerTotal = useMemo(() => {
     if (!currentPeriodData) return 0;
-    if (categoriaExpandida && currentPeriodData.categorias[categoriaExpandida]) {
-      return currentPeriodData.categorias[categoriaExpandida].total;
+    
+    // Se estiver no modo de busca, mostrar soma do que foi encontrado
+    if (termoBusca.trim().length > 0) {
+      return searchResults.reduce((acc, curr) => acc + curr.valor, 0);
+    }
+    
+    if (catAtiva && currentPeriodData.categorias[catAtiva]) {
+      const subCatObj = currentPeriodData.categorias[catAtiva].subcategorias?.[subAtiva || ''];
+      
+      if (subAtiva && subCatObj) {
+        const tipoObj = subCatObj.tipos?.[tipoAtivo || ''];
+        if (tipoAtivo && tipoObj) {
+          return tipoObj.total;
+        }
+        return subCatObj.total;
+      }
+      return currentPeriodData.categorias[catAtiva].total;
     }
     return currentPeriodData.total;
-  }, [currentPeriodData, categoriaExpandida]);
-
-  const headerTitle = categoriaExpandida 
-    ? `Detalhes: ${categoriaExpandida}` 
-    : 'Visão Geral de Compras';
+  }, [currentPeriodData, catAtiva, subAtiva, tipoAtivo, termoBusca, searchResults]);
 
   if (loading) {
     return (
@@ -162,153 +240,339 @@ export default function ComprasModule() {
     );
   }
 
+  const getNivelLabel = () => {
+    if (catAtiva && subAtiva) return "Tipos";
+    if (catAtiva) return "Subcategorias";
+    return "Categorias";
+  };
+  
+  const isSearchActive = termoBusca.trim().length > 0;
+  const isLevel4Active = tipoAtivo !== null;
+
   return (
     <div className="p-4 sm:p-6 lg:p-8 h-full overflow-y-auto w-full flex justify-center items-start">
       <div className="bg-[#121212] border border-zinc-800 rounded-3xl p-8 sm:p-10 shadow-2xl w-full max-w-5xl mt-4">
         
         {/* Header */}
-        <div className="mb-10 border-b border-zinc-800/80 pb-8 text-center sm:text-left flex flex-col sm:flex-row justify-between items-center sm:items-end gap-6">
-          <div>
-            <h2 className="text-sm font-black text-zinc-500 uppercase tracking-[0.2em] mb-3">{headerTitle}</h2>
-            <div className="text-4xl sm:text-6xl font-black text-white tracking-tight">
-              {formatCurrency(headerTotal)}
+        <div className="mb-8 border-b border-zinc-800/80 pb-8 flex flex-col gap-6">
+          <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-6">
+            <div>
+              <h2 className="text-sm font-black text-zinc-500 uppercase tracking-[0.2em] mb-3">
+                {isSearchActive ? 'Resultados da Busca' : 'Visão Geral de Compras'}
+              </h2>
+              <div className="text-4xl sm:text-6xl font-black text-white tracking-tight">
+                {formatCurrency(headerTotal)}
+              </div>
             </div>
-          </div>
-          <div className="flex flex-col items-center sm:items-end gap-4 w-full sm:w-auto">
-            <div className="flex items-center gap-2 w-full sm:w-auto">
-              <Calendar className="w-4 h-4 text-zinc-500 hidden sm:block" />
-              <select 
-                value={mesSelecionado}
-                onChange={(e) => setMesSelecionado(e.target.value)}
-                className="bg-zinc-900 border border-zinc-800 text-zinc-300 text-sm rounded-lg px-4 py-2.5 focus:outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500 font-medium cursor-pointer w-full sm:w-auto min-w-[200px]"
-              >
-                <option value="geral">VISÃO GERAL (TODOS)</option>
-                {availableMonths.map(mes => (
-                  <option key={mes} value={mes}>
-                    {nomesMeses[mes] ? nomesMeses[mes] : `MÊS ${mes}`}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div className="px-4 py-1.5 bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-[10px] sm:text-xs font-bold uppercase tracking-wider rounded-full">
-              NFe Sincronizada
+            
+            <div className="flex flex-col gap-3 w-full md:w-auto">
+              <div className="flex items-center gap-2">
+                <Calendar className="w-4 h-4 text-zinc-500 hidden sm:block shrink-0" />
+                <select 
+                  value={mesSelecionado}
+                  onChange={(e) => setMesSelecionado(e.target.value)}
+                  className="bg-zinc-900 border border-zinc-800 text-zinc-300 text-sm rounded-lg px-4 py-2.5 focus:outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500 font-medium cursor-pointer w-full md:w-56"
+                >
+                  <option value="geral">VISÃO GERAL (TODOS)</option>
+                  {availableMonths.map(mes => (
+                    <option key={mes} value={mes}>
+                      {nomesMeses[mes] ? nomesMeses[mes] : `MÊS ${mes}`}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              
+              <div className="relative w-full md:w-auto">
+                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                  <Search className="h-4 w-4 text-zinc-500" />
+                </div>
+                <input
+                  type="text"
+                  placeholder="Buscar item específico..."
+                  value={termoBusca}
+                  onChange={(e) => setTermoBusca(e.target.value)}
+                  className="bg-zinc-900 border border-zinc-800 text-zinc-200 text-sm rounded-lg pl-10 pr-4 py-2.5 focus:outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500 font-medium w-full md:w-64 placeholder-zinc-600 transition-all"
+                />
+              </div>
             </div>
           </div>
         </div>
 
-        {/* Content */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 items-center">
-          
-          {/* Chart Section */}
-          <div className="h-80 w-full relative flex items-center justify-center">
-            {chartData.length > 0 ? (
-              <ResponsiveContainer width="100%" height="100%">
-                <PieChart>
-                  <Pie
-                    data={chartData}
-                    cx="50%"
-                    cy="50%"
-                    innerRadius={75}
-                    outerRadius={120}
-                    paddingAngle={4}
-                    dataKey="value"
-                    stroke="none"
-                    cornerRadius={6}
-                  >
-                    {chartData.map((entry, index) => (
-                      <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                    ))}
-                  </Pie>
-                  <Tooltip 
-                    formatter={(value: number) => formatCurrency(value)}
-                    contentStyle={{ backgroundColor: '#18181b', border: '1px solid #27272a', borderRadius: '12px', color: '#fff', boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.5)' }}
-                    itemStyle={{ color: '#fff', fontWeight: 600 }}
-                  />
-                </PieChart>
-              </ResponsiveContainer>
-            ) : (
-              <div className="text-zinc-600 font-medium text-center">Nenhum dado encontrado</div>
-            )}
-            
-            {/* Center Label */}
-            {chartData.length > 0 && (
-              <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-                <span className="text-[10px] font-black text-zinc-500 uppercase tracking-widest mb-1">
-                  {categoriaExpandida ? 'Subcategorias' : 'Categorias'}
-                </span>
-                <span className="text-3xl font-black text-white">{chartData.length}</span>
-              </div>
-            )}
-          </div>
-
-          {/* Table/Legend Section */}
-          <div className="flex flex-col h-[350px]">
-            {categoriaExpandida && (
+        {/* Conditional View: Search Results vs Drill-down Level 4 vs Dashboard */}
+        {isSearchActive ? (
+          <div className="flex flex-col h-[500px]">
+            <div className="flex items-center justify-between mb-4">
+              <p className="text-zinc-400 text-sm font-medium">
+                Encontrados <span className="text-white font-bold">{searchResults.length}</span> resultados para "{termoBusca}"
+              </p>
               <button 
-                onClick={() => setCategoriaExpandida(null)}
-                className="self-start text-cyan-400 hover:text-cyan-300 text-[11px] font-bold uppercase tracking-widest mb-4 flex items-center gap-1.5 transition-colors"
+                onClick={() => setTermoBusca("")}
+                className="text-xs text-rose-400 hover:text-rose-300 font-bold uppercase tracking-wider"
               >
-                <ArrowLeft className="w-3.5 h-3.5" />
-                Voltar para Categorias Gerais
+                Limpar Busca
               </button>
-            )}
+            </div>
             
             <div className="bg-zinc-900/40 rounded-2xl p-2 border border-zinc-800/50 flex-1 flex flex-col overflow-hidden">
               <div className="flex-1 overflow-y-auto pr-2 custom-scrollbar">
                 <table className="w-full text-left border-collapse">
                   <thead className="sticky top-0 bg-[#121212]/95 backdrop-blur-md z-10">
                     <tr>
-                      <th className="py-4 px-4 text-[10px] font-bold text-zinc-500 uppercase tracking-widest border-b border-zinc-800">
-                        {categoriaExpandida ? 'Subcategoria' : 'Setor/Categoria'}
-                      </th>
+                      <th className="py-4 px-4 text-[10px] font-bold text-zinc-500 uppercase tracking-widest border-b border-zinc-800">Item</th>
                       <th className="py-4 px-4 text-[10px] font-bold text-zinc-500 uppercase tracking-widest text-right border-b border-zinc-800">Custo Total</th>
-                      <th className="py-4 px-4 text-[10px] font-bold text-zinc-500 uppercase tracking-widest text-right border-b border-zinc-800">%</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-zinc-800/40">
-                    {chartData.length === 0 && (
+                    {searchResults.length === 0 ? (
                       <tr>
-                        <td colSpan={3} className="py-8 text-center text-zinc-600 text-sm">Nenhum registro encontrado.</td>
+                        <td colSpan={2} className="py-12 text-center">
+                          <p className="text-zinc-500 text-sm font-medium">Nenhum item encontrado.</p>
+                        </td>
                       </tr>
+                    ) : (
+                      searchResults.map((item, index) => (
+                        <tr key={item.nome} className="hover:bg-zinc-800/40 transition-colors">
+                          <td className="py-4 px-4">
+                            <span className="text-sm font-bold text-zinc-200">{item.nome}</span>
+                          </td>
+                          <td className="py-4 px-4 text-right">
+                            <span className="text-sm font-mono font-medium text-emerald-400">{formatCurrency(item.valor)}</span>
+                          </td>
+                        </tr>
+                      ))
                     )}
-                    {chartData.map((item, index) => (
-                      <tr 
-                        key={item.name} 
-                        onClick={() => {
-                          if (!categoriaExpandida) {
-                            setCategoriaExpandida(item.name);
-                          }
-                        }}
-                        className={`hover:bg-zinc-800/40 transition-colors group ${!categoriaExpandida ? 'cursor-pointer' : ''}`}
-                      >
-                        <td className="py-4 px-4">
-                          <div className="flex items-center gap-3">
-                            <div 
-                              className="w-3 h-3 rounded-full shrink-0"
-                              style={{ backgroundColor: COLORS[index % COLORS.length] }}
-                            />
-                            <span className={`text-sm font-bold text-zinc-200 transition-colors ${!categoriaExpandida ? 'group-hover:text-cyan-400' : 'group-hover:text-white'}`}>
-                              {item.name}
-                            </span>
-                          </div>
-                        </td>
-                        <td className="py-4 px-4 text-right">
-                          <span className="text-sm font-mono font-medium text-zinc-300">{formatCurrency(item.value)}</span>
-                        </td>
-                        <td className="py-4 px-4 text-right">
-                          <span className="text-sm font-mono font-bold" style={{ color: COLORS[index % COLORS.length] }}>
-                            {item.percentage.toFixed(1)}%
-                          </span>
-                        </td>
-                      </tr>
-                    ))}
                   </tbody>
                 </table>
               </div>
             </div>
           </div>
+        ) : isLevel4Active ? (
+          <div className="flex flex-col h-[500px]">
+            {/* Breadcrumbs for Level 4 */}
+            <div className="flex items-center text-xs font-black tracking-widest uppercase mb-4 bg-zinc-900/40 p-3.5 rounded-xl border border-zinc-800/80 w-full overflow-x-auto whitespace-nowrap">
+              <button 
+                onClick={() => { setCatAtiva(null); setSubAtiva(null); setTipoAtivo(null); }}
+                className="transition-colors text-cyan-400 hover:text-cyan-300 cursor-pointer"
+              >
+                Visão Geral
+              </button>
+              
+              <ChevronRight className="w-4 h-4 mx-2 text-zinc-600 shrink-0" />
+              <button 
+                onClick={() => { setSubAtiva(null); setTipoAtivo(null); }}
+                className="transition-colors text-cyan-400 hover:text-cyan-300 cursor-pointer"
+              >
+                {catAtiva}
+              </button>
 
-        </div>
+              <ChevronRight className="w-4 h-4 mx-2 text-zinc-600 shrink-0" />
+              <button 
+                onClick={() => setTipoAtivo(null)}
+                className="transition-colors text-cyan-400 hover:text-cyan-300 cursor-pointer"
+              >
+                {subAtiva}
+              </button>
+
+              <ChevronRight className="w-4 h-4 mx-2 text-zinc-600 shrink-0" />
+              <span className="text-zinc-300">
+                {tipoAtivo}
+              </span>
+            </div>
+
+            <div className="flex items-center justify-between mb-4 mt-2">
+              <p className="text-zinc-400 text-sm font-medium">
+                Composição de Insumos: <span className="text-white font-bold">{tipoAtivo}</span>
+              </p>
+              <button 
+                onClick={() => setTipoAtivo(null)}
+                className="flex items-center gap-1.5 text-xs text-cyan-400 hover:text-cyan-300 font-bold uppercase tracking-wider"
+              >
+                <ArrowLeft className="w-3.5 h-3.5" />
+                Voltar para Tipos
+              </button>
+            </div>
+            
+            <div className="bg-zinc-900/40 rounded-2xl p-2 border border-zinc-800/50 flex-1 flex flex-col overflow-hidden">
+              <div className="flex-1 overflow-y-auto pr-2 custom-scrollbar">
+                <table className="w-full text-left border-collapse">
+                  <thead className="sticky top-0 bg-[#121212]/95 backdrop-blur-md z-10">
+                    <tr>
+                      <th className="py-4 px-4 text-[10px] font-bold text-zinc-500 uppercase tracking-widest border-b border-zinc-800">Insumo Individual</th>
+                      <th className="py-4 px-4 text-[10px] font-bold text-zinc-500 uppercase tracking-widest text-right border-b border-zinc-800">Custo Absoluto</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-zinc-800/40">
+                    {level4Items.length === 0 ? (
+                      <tr>
+                        <td colSpan={2} className="py-12 text-center">
+                          <p className="text-zinc-500 text-sm font-medium">Nenhum insumo específico registrado sob este tipo.</p>
+                        </td>
+                      </tr>
+                    ) : (
+                      level4Items.map((item, index) => (
+                        <tr key={item.nome} className="hover:bg-zinc-800/40 transition-colors">
+                          <td className="py-4 px-4">
+                            <span className="text-sm font-bold text-zinc-200">{item.nome}</span>
+                          </td>
+                          <td className="py-4 px-4 text-right">
+                            <span className="text-sm font-mono font-medium text-emerald-400">{formatCurrency(item.valor)}</span>
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        ) : (
+          <>
+            {/* Breadcrumbs */}
+            <div className="flex items-center text-xs font-black tracking-widest uppercase mb-8 bg-zinc-900/40 p-3.5 rounded-xl border border-zinc-800/80 w-full overflow-x-auto whitespace-nowrap">
+              <button 
+                onClick={() => { setCatAtiva(null); setSubAtiva(null); setTipoAtivo(null); }}
+                className={`transition-colors ${!catAtiva ? 'text-zinc-300 cursor-default' : 'text-cyan-400 hover:text-cyan-300 cursor-pointer'}`}
+                disabled={!catAtiva}
+              >
+                Visão Geral
+              </button>
+              
+              {catAtiva && (
+                <>
+                  <ChevronRight className="w-4 h-4 mx-2 text-zinc-600 shrink-0" />
+                  <button 
+                    onClick={() => { setSubAtiva(null); setTipoAtivo(null); }}
+                    className={`transition-colors ${!subAtiva ? 'text-zinc-300 cursor-default' : 'text-cyan-400 hover:text-cyan-300 cursor-pointer'}`}
+                    disabled={!subAtiva}
+                  >
+                    {catAtiva}
+                  </button>
+                </>
+              )}
+
+              {catAtiva && subAtiva && (
+                <>
+                  <ChevronRight className="w-4 h-4 mx-2 text-zinc-600 shrink-0" />
+                  <span className="text-zinc-300">
+                    {subAtiva}
+                  </span>
+                </>
+              )}
+            </div>
+
+            {/* Drill-down Dashboard Content */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 items-center">
+              
+              {/* Chart Section */}
+              <div className="h-80 w-full relative flex items-center justify-center">
+                {chartData.length > 0 ? (
+                  <ResponsiveContainer width="100%" height="100%">
+                    <PieChart>
+                      <Pie
+                        data={chartData}
+                        cx="50%"
+                        cy="50%"
+                        innerRadius={75}
+                        outerRadius={120}
+                        paddingAngle={4}
+                        dataKey="value"
+                        stroke="none"
+                        cornerRadius={6}
+                      >
+                        {chartData.map((entry, index) => (
+                          <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                        ))}
+                      </Pie>
+                      <Tooltip 
+                        formatter={(value: number) => formatCurrency(value)}
+                        contentStyle={{ backgroundColor: '#18181b', border: '1px solid #27272a', borderRadius: '12px', color: '#fff', boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.5)' }}
+                        itemStyle={{ color: '#fff', fontWeight: 600 }}
+                      />
+                    </PieChart>
+                  </ResponsiveContainer>
+                ) : (
+                  <div className="text-zinc-600 font-medium text-center">Nenhum dado encontrado</div>
+                )}
+                
+                {/* Center Label */}
+                {chartData.length > 0 && (
+                  <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
+                    <span className="text-[10px] font-black text-zinc-500 uppercase tracking-widest mb-1">
+                      {getNivelLabel()}
+                    </span>
+                    <span className="text-3xl font-black text-white">{chartData.length}</span>
+                  </div>
+                )}
+              </div>
+
+              {/* Table/Legend Section */}
+              <div className="flex flex-col h-[350px]">
+                <div className="bg-zinc-900/40 rounded-2xl p-2 border border-zinc-800/50 flex-1 flex flex-col overflow-hidden">
+                  <div className="flex-1 overflow-y-auto pr-2 custom-scrollbar">
+                    <table className="w-full text-left border-collapse">
+                      <thead className="sticky top-0 bg-[#121212]/95 backdrop-blur-md z-10">
+                        <tr>
+                          <th className="py-4 px-4 text-[10px] font-bold text-zinc-500 uppercase tracking-widest border-b border-zinc-800">
+                            {getNivelLabel()}
+                          </th>
+                          <th className="py-4 px-4 text-[10px] font-bold text-zinc-500 uppercase tracking-widest text-right border-b border-zinc-800">Custo</th>
+                          <th className="py-4 px-4 text-[10px] font-bold text-zinc-500 uppercase tracking-widest text-right border-b border-zinc-800">%</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-zinc-800/40">
+                        {chartData.length === 0 && (
+                          <tr>
+                            <td colSpan={3} className="py-8 text-center text-zinc-600 text-sm">Nenhum registro encontrado.</td>
+                          </tr>
+                        )}
+                        {chartData.map((item, index) => {
+                          // Nível 3 (Tipos) também é clicável agora para ir para o Nível 4
+                          const isClickable = !catAtiva || (catAtiva && !subAtiva) || (catAtiva && subAtiva && !tipoAtivo);
+                          return (
+                            <tr 
+                              key={item.name} 
+                              onClick={() => {
+                                if (!catAtiva) {
+                                  setCatAtiva(item.name);
+                                } else if (!subAtiva) {
+                                  setSubAtiva(item.name);
+                                } else if (!tipoAtivo) {
+                                  setTipoAtivo(item.name);
+                                }
+                              }}
+                              className={`hover:bg-zinc-800/40 transition-colors group ${isClickable ? 'cursor-pointer' : ''}`}
+                            >
+                              <td className="py-4 px-4">
+                                <div className="flex items-center gap-3">
+                                  <div 
+                                    className="w-3 h-3 rounded-full shrink-0"
+                                    style={{ backgroundColor: COLORS[index % COLORS.length] }}
+                                  />
+                                  <span className={`text-sm font-bold text-zinc-200 transition-colors ${isClickable ? 'group-hover:text-cyan-400' : 'group-hover:text-white'}`}>
+                                    {item.name}
+                                  </span>
+                                </div>
+                              </td>
+                              <td className="py-4 px-4 text-right">
+                                <span className="text-sm font-mono font-medium text-zinc-300">{formatCurrency(item.value)}</span>
+                              </td>
+                              <td className="py-4 px-4 text-right">
+                                <span className="text-sm font-mono font-bold" style={{ color: COLORS[index % COLORS.length] }}>
+                                  {item.percentage.toFixed(1)}%
+                                </span>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </>
+        )}
+
       </div>
     </div>
   );
