@@ -1,895 +1,393 @@
-import React, { useState, useRef, useEffect, useMemo } from "react";
-import {
-  UploadCloud,
-  FileText,
-  AlertCircle,
-  BarChart3,
-  TrendingUp,
-  DollarSign,
-  Award,
-  CheckCircle2,
-  FileSpreadsheet,
-  Trophy,
-  RefreshCcw,
-  Trash2,
-  Search,
-} from "lucide-react";
-import * as XLSX from "xlsx";
-import {
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
-  Tooltip,
-  ResponsiveContainer,
-  Cell,
-  CartesianGrid,
-} from "recharts";
-import { appDb } from "../firebase";
-import { VendaSoftcom } from "../types";
+import React, { useState, useEffect, useMemo } from 'react';
+import { 
+  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer, Cell, PieChart, Pie
+} from 'recharts';
+import { 
+  Search, Filter, TrendingUp, DollarSign, Package, Users, Award, Loader2, AlertCircle 
+} from 'lucide-react';
+
+interface ApiVenda {
+  garcom: string;
+  periodo: string;
+  nome: string;
+  grupo: string;
+  quantidade: number;
+  valorVenda: number;
+}
+
+const COLORS = ["#d946ef", "#0ea5e9", "#10b981", "#f59e0b", "#f43f5e", "#8b5cf6"];
 
 export default function RelatoriosVendasModule() {
-  const [loading, setLoading] = useState(false);
-  const [loadingMsg, setLoadingMsg] = useState("");
+  const [todasVendas, setTodasVendas] = useState<ApiVenda[]>([]);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Dados do Firebase
-  const [registrosDb, setRegistrosDb] = useState<VendaSoftcom[]>([]);
-  const [fetchingDb, setFetchingDb] = useState(true);
-
-  // Estados derivados para exibição
-  const [selectedGrupos, setSelectedGrupos] = useState<string[]>([]);
-  const [showGruposDropdown, setShowGruposDropdown] = useState(false);
+  // Filtros
+  const [selectedPeriodo, setSelectedPeriodo] = useState<string>("Todos");
   const [selectedGarcom, setSelectedGarcom] = useState<string>("Todos");
-  const [gruposDisponiveis, setGruposDisponiveis] = useState<string[]>([]);
-  const [garconsDisponiveis, setGarconsDisponiveis] = useState<string[]>([]);
+  const [selectedGrupo, setSelectedGrupo] = useState<string>("Todos");
+  const [searchItem, setSearchItem] = useState("");
 
-  const [vendas, setVendas] = useState<any[]>([]);
-  const [vendasPorGarcom, setVendasPorGarcom] = useState<any[]>([]);
-  const [kpis, setKpis] = useState<{
-    totalVendas: number;
-    totalItens: number;
-    ticketMedio: number;
-    topGarcom?: string;
-  } | null>(null);
-
-  const fileInputRef = useRef<HTMLInputElement>(null);
-
-  // Estados para o modal de período
-  const [showPeriodModal, setShowPeriodModal] = useState(false);
-  const [pendingFile, setPendingFile] = useState<File | null>(null);
-  const [periodoInicio, setPeriodoInicio] = useState("");
-  const [periodoFim, setPeriodoFim] = useState("");
-
-  // Estados para busca de item
-  const [selectedItens, setSelectedItens] = useState<string[]>([]);
-  const [showItensDropdown, setShowItensDropdown] = useState(false);
-  const [searchTermItens, setSearchTermItens] = useState("");
-  const [itensDisponiveis, setItensDisponiveis] = useState<string[]>([]);
-
+  // Fetch initial data
   useEffect(() => {
-    const unsub = appDb.subscribe("vendas_softcom", (data) => {
-      const records = data as VendaSoftcom[];
-      setRegistrosDb(records);
-
-      const grupos = Array.from(
-        new Set(records.map((r) => r.grupo || "Geral")),
-      ).sort();
-      setGruposDisponiveis(grupos);
-
-      const garcons = Array.from(
-        new Set(records.map((r) => r.garcom || "Não Identificado")),
-      ).sort();
-      setGarconsDisponiveis(["Todos", ...garcons]);
-      
-      const itens = Array.from(
-        new Set(records.map((r) => r.nome || "Não Identificado")),
-      ).sort();
-      setItensDisponiveis(itens);
-
-      setFetchingDb(false);
-    });
-
-    return () => unsub();
-  }, []);
-
-  useEffect(() => {
-    if (registrosDb.length > 0) {
-      processDbData(registrosDb, selectedGrupos, selectedGarcom, selectedItens);
-    } else {
-      setKpis(null);
-      setVendas([]);
-      setVendasPorGarcom([]);
-    }
-  }, [registrosDb, selectedGrupos, selectedGarcom, selectedItens]);
-
-  const processDbData = (
-    records: VendaSoftcom[],
-    gruposFiltro: string[],
-    garcomFiltro: string,
-    itensFiltro: string[]
-  ) => {
-    let filteredRecords = records;
-    if (gruposFiltro.length > 0) {
-      filteredRecords = filteredRecords.filter((r) =>
-        gruposFiltro.includes(r.grupo || "Geral"),
-      );
-    }
-    if (garcomFiltro !== "Todos") {
-      filteredRecords = filteredRecords.filter(
-        (r) => (r.garcom || "Não Identificado") === garcomFiltro,
-      );
-    }
-    if (itensFiltro.length > 0) {
-      filteredRecords = filteredRecords.filter((r) =>
-        itensFiltro.includes(r.nome || "Não Identificado"),
-      );
-    }
-
-    let totalVendas = 0;
-    let totalItens = 0;
-
-    // Agrupar itens duplicados
-    const groupedItems: Record<string, any> = {};
-    const garcomStats: Record<
-      string,
-      { valor: number; quantidade: number; categorias: Record<string, number> }
-    > = {};
-
-    filteredRecords.forEach((item) => {
-      totalVendas += item.valorVenda;
-      totalItens += item.quantidade;
-
-      const key = item.nome.toUpperCase().trim();
-      if (!groupedItems[key]) {
-        groupedItems[key] = {
-          nome: item.nome,
-          quantidade: item.quantidade,
-          valorTotal: item.valorVenda,
-          grupo: item.grupo || "Sem Grupo",
-        };
-      } else {
-        groupedItems[key].quantidade += item.quantidade;
-        groupedItems[key].valorTotal += item.valorVenda;
-      }
-
-      const garcom = item.garcom || "Não Identificado";
-      const grupo = item.grupo || "Geral";
-
-      if (!garcomStats[garcom]) {
-        garcomStats[garcom] = { valor: 0, quantidade: 0, categorias: {} };
-      }
-      garcomStats[garcom].valor += item.valorVenda;
-      garcomStats[garcom].quantidade += item.quantidade;
-
-      if (!garcomStats[garcom].categorias[grupo]) {
-        garcomStats[garcom].categorias[grupo] = 0;
-      }
-      garcomStats[garcom].categorias[grupo] += item.quantidade;
-    });
-
-    const ticketMedio = totalItens > 0 ? totalVendas / totalItens : 0;
-    const sortedVendas = Object.values(groupedItems).sort(
-      (a, b) => b.quantidade - a.quantidade,
-    );
-
-    const garcomArray = Object.keys(garcomStats)
-      .map((key) => ({
-        nome: key,
-        valor: garcomStats[key].valor,
-        quantidade: garcomStats[key].quantidade,
-        categorias: garcomStats[key].categorias,
-      }))
-      .sort((a, b) => b.valor - a.valor);
-
-    setVendas(sortedVendas);
-    setVendasPorGarcom(garcomArray);
-
-    setKpis({
-      totalVendas,
-      totalItens,
-      ticketMedio,
-      topGarcom: garcomArray.length > 0 ? garcomArray[0].nome : "Nenhum",
-    });
-  };
-
-  const parseExcel = async (file: File) => {
-    try {
-      const data = await file.arrayBuffer();
-      const workbook = XLSX.read(data);
-      const firstSheetName = workbook.SheetNames[0];
-      const worksheet = workbook.Sheets[firstSheetName];
-      const json = XLSX.utils.sheet_to_json<any>(worksheet);
-
-      const itemsToAdd: any[] = [];
-      const uploadDate = new Date().toISOString();
-
-      json.forEach((row) => {
-        // Tentativa de adivinhar colunas baseadas em relatórios comuns do Softcom
-        const nome =
-          row["Nome"] || row["nome"] || row["Produto"] || row["NOME"];
-        const quantidade = parseFloat(
-          row["Quantidade"] ||
-            row["quantidade"] ||
-            row["Qtd"] ||
-            row["QTD"] ||
-            0,
-        );
-        const garcom =
-          row["Garçom"] ||
-          row["garçom"] ||
-          row["Vendedor"] ||
-          row["vendedor"] ||
-          row["Atendente"] ||
-          row["atendente"] ||
-          "Não Identificado";
-        const grupo =
-          row["Grupo"] || row["grupo"] || row["Categoria"] || "Geral";
-
-        let valorRaw =
-          row["Valor Venda (R$)"] ||
-          row["Valor Venda"] ||
-          row["valor venda"] ||
-          row["Total"] ||
-          row["Valor"] ||
-          row["Valor Total"] ||
-          0;
-        if (typeof valorRaw === "string") {
-          valorRaw = parseFloat(valorRaw.replace(/\./g, "").replace(",", "."));
-        }
-
-        if (nome && quantidade > 0) {
-          itemsToAdd.push({
-            dataUpload: uploadDate,
-            periodoInicio: periodoInicio || undefined,
-            periodoFim: periodoFim || undefined,
-            garcom: String(garcom).trim(),
-            nome: String(nome).trim(),
-            grupo: String(grupo).trim(),
-            quantidade: quantidade,
-            valorVenda: valorRaw || 0,
-          });
-        }
-      });
-
-      if (itemsToAdd.length === 0) {
-        setError("Nenhum dado válido de venda encontrado na planilha.");
-        setLoading(false);
-        return;
-      }
-
-      await saveToDb(itemsToAdd);
-    } catch (err: any) {
-      setError("Erro ao ler arquivo Excel: " + err.message);
-      setLoading(false);
-    }
-  };
-
-  const saveToDb = async (items: any[]) => {
-    try {
-      // Salva no Firestore
-      // Se forem muitos itens, seria ideal usar batch. Por enquanto gravamos individualmente ou com Promise.all.
-      // O appDb.add já cuida da adição. Como pode ser um array grande, faremos em chunks para não travar
-      const chunkSize = 50;
-      for (let i = 0; i < items.length; i += chunkSize) {
-        const chunk = items.slice(i, i + chunkSize);
-        await Promise.all(
-          chunk.map((item) => appDb.add("vendas_softcom", item)),
-        );
-      }
-
-      setError(null);
-      setLoading(false);
-      setPeriodoInicio("");
-      setPeriodoFim("");
-      if (fileInputRef.current) {
-        fileInputRef.current.value = "";
-      }
-    } catch (err: any) {
-      setError("Erro ao salvar no banco de dados: " + err.message);
-      setLoading(false);
-    }
-  };
-
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    const isExcel = file.name.endsWith(".xlsx") || file.name.endsWith(".csv");
-
-    if (isExcel) {
-      setPendingFile(file);
-      setShowPeriodModal(true);
-    } else {
-      setError(
-        "Formato de arquivo não suportado. Por favor, envie arquivos .xlsx ou .csv",
-      );
-    }
-    
-    if (fileInputRef.current) {
-      fileInputRef.current.value = "";
-    }
-  };
-
-  const handleConfirmPeriod = () => {
-    if (!pendingFile) return;
-    
-    setShowPeriodModal(false);
-    setLoading(true);
-    setLoadingMsg("Processando e gravando dados...");
-    setError(null);
-    
-    parseExcel(pendingFile);
-    setPendingFile(null);
-  };
-
-  const handleCancelPeriod = () => {
-    setShowPeriodModal(false);
-    setPendingFile(null);
-    setPeriodoInicio("");
-    setPeriodoFim("");
-  };
-
-  const handleClearData = async () => {
-    if (
-      confirm(
-        "Tem certeza que deseja apagar todos os dados de vendas armazenados? Esta ação não pode ser desfeita.",
-      )
-    ) {
-      setLoading(true);
-      setLoadingMsg("Limpando base de dados...");
+    const fetchVendas = async () => {
       try {
-        const chunkSize = 50;
-        for (let i = 0; i < registrosDb.length; i += chunkSize) {
-          const chunk = registrosDb.slice(i, i + chunkSize);
-          await Promise.all(
-            chunk.map((item) => appDb.delete("vendas_softcom", item.id)),
-          );
+        const response = await fetch("https://script.google.com/macros/s/AKfycbzZjwaEDHoyuIuBZ3omHGDmPxD3HA82b8In6ocV3Yp0s-6lzqeXjTs5EDUJ4HQmhx6k/exec");
+        if (!response.ok) throw new Error("Falha na rede ao buscar dados.");
+        const json = await response.json();
+        
+        if (json.sucesso && json.dados) {
+          setTodasVendas(json.dados);
+        } else {
+          throw new Error("API retornou sucesso=false ou dados vazios.");
         }
       } catch (err: any) {
-        alert("Erro ao limpar dados: " + err.message);
+        setError(err.message || "Ocorreu um erro ao carregar as vendas.");
       } finally {
         setLoading(false);
       }
-    }
+    };
+    fetchVendas();
+  }, []);
+
+  // Extração de opções únicas para os selects
+  const { periodos, garcons, grupos } = useMemo(() => {
+    const p = new Set<string>();
+    const ga = new Set<string>();
+    const gr = new Set<string>();
+    
+    todasVendas.forEach(v => {
+      if (v.periodo) p.add(v.periodo);
+      if (v.garcom) ga.add(v.garcom);
+      if (v.grupo) gr.add(v.grupo);
+    });
+
+    return {
+      periodos: ["Todos", ...Array.from(p).sort()],
+      garcons: ["Todos", ...Array.from(ga).sort()],
+      grupos: ["Todos", ...Array.from(gr).sort()]
+    };
+  }, [todasVendas]);
+
+  // Aplicação dos filtros
+  const vendasFiltradas = useMemo(() => {
+    return todasVendas.filter(v => {
+      const matchPeriodo = selectedPeriodo === "Todos" || v.periodo === selectedPeriodo;
+      const matchGarcom = selectedGarcom === "Todos" || v.garcom === selectedGarcom;
+      const matchGrupo = selectedGrupo === "Todos" || v.grupo === selectedGrupo;
+      const matchSearch = searchItem === "" || v.nome.toLowerCase().includes(searchItem.toLowerCase());
+      return matchPeriodo && matchGarcom && matchGrupo && matchSearch;
+    });
+  }, [todasVendas, selectedPeriodo, selectedGarcom, selectedGrupo, searchItem]);
+
+  // Cálculo de KPIs
+  const kpis = useMemo(() => {
+    let totalValue = 0;
+    let totalItems = 0;
+    const garcomMap: Record<string, number> = {};
+
+    vendasFiltradas.forEach(v => {
+      totalValue += v.valorVenda;
+      totalItems += v.quantidade;
+      garcomMap[v.garcom] = (garcomMap[v.garcom] || 0) + v.valorVenda;
+    });
+
+    let topGarcom = { nome: "N/A", valor: 0 };
+    Object.entries(garcomMap).forEach(([nome, valor]) => {
+      if (valor > topGarcom.valor) {
+        topGarcom = { nome, valor };
+      }
+    });
+
+    return {
+      totalFaturado: totalValue,
+      totalItens: totalItems,
+      ticketMedio: totalItems > 0 ? totalValue / totalItems : 0,
+      topGarcom
+    };
+  }, [vendasFiltradas]);
+
+  // Gráfico: Top 5 Itens
+  const top5Itens = useMemo(() => {
+    const itemMap: Record<string, { quantidade: number, valor: number, grupo: string }> = {};
+    vendasFiltradas.forEach(v => {
+      if (!itemMap[v.nome]) itemMap[v.nome] = { quantidade: 0, valor: 0, grupo: v.grupo };
+      itemMap[v.nome].quantidade += v.quantidade;
+      itemMap[v.nome].valor += v.valorVenda;
+    });
+    
+    return Object.entries(itemMap)
+      .map(([nome, data]) => ({ nome, ...data }))
+      .sort((a, b) => b.valor - a.valor)
+      .slice(0, 5);
+  }, [vendasFiltradas]);
+
+  // Gráfico e Cards: Desempenho dos Garçons
+  const garconsDesempenho = useMemo(() => {
+    const map: Record<string, { valor: number, quantidade: number, categorias: Record<string, number> }> = {};
+    vendasFiltradas.forEach(v => {
+      if (!map[v.garcom]) map[v.garcom] = { valor: 0, quantidade: 0, categorias: {} };
+      map[v.garcom].valor += v.valorVenda;
+      map[v.garcom].quantidade += v.quantidade;
+      if (!map[v.garcom].categorias[v.grupo]) map[v.garcom].categorias[v.grupo] = 0;
+      map[v.garcom].categorias[v.grupo] += v.quantidade;
+    });
+    return Object.entries(map)
+      .map(([nome, data]) => ({ nome, ...data }))
+      .sort((a, b) => b.valor - a.valor);
+  }, [vendasFiltradas]);
+
+  const formatCurrency = (value: number) => {
+    return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(value);
   };
 
-  if (fetchingDb) {
-    return <div className="p-8 text-slate-400">Carregando dados...</div>;
+  // Render States
+  if (loading) {
+    return (
+      <div className="flex flex-col items-center justify-center h-full w-full bg-[#121212] text-zinc-400">
+        <Loader2 className="w-12 h-12 animate-spin text-fuchsia-500 mb-6" />
+        <p className="text-lg font-mono tracking-widest uppercase">Processando Vendas (API)...</p>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="flex flex-col items-center justify-center h-full w-full bg-[#121212] text-rose-400">
+        <AlertCircle className="w-16 h-16 mb-6 opacity-80" />
+        <p className="text-lg font-medium">{error}</p>
+        <button 
+          onClick={() => window.location.reload()} 
+          className="mt-6 px-6 py-2.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-200 rounded-lg transition-colors text-sm font-bold uppercase tracking-wider"
+        >
+          Tentar Novamente
+        </button>
+      </div>
+    );
   }
 
   return (
-    <div className="flex flex-col space-y-6 animate-in fade-in duration-300">
-      {/* HEADER */}
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-white tracking-tight flex items-center gap-2">
-            <BarChart3 className="h-6 w-6 text-fuchsia-400" />
-            Análise de Vendas (Softcom)
-          </h1>
-          <p className="text-sm text-slate-400 mt-1">
-            Faça upload do seu relatório de vendas para calcular KPIs e
-            comissões automaticamente. Os dados ficam salvos para análises.
-          </p>
-        </div>
-        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 w-full sm:w-auto">
-          {registrosDb.length > 0 && (
-            <button
-              onClick={() => fileInputRef.current?.click()}
-              disabled={loading}
-              className="px-4 py-2 bg-fuchsia-600 hover:bg-fuchsia-500 rounded-lg text-sm font-medium text-white transition flex items-center justify-center gap-2 disabled:opacity-50"
+    <div className="p-4 sm:p-6 lg:p-8 h-full overflow-y-auto w-full bg-[#121212] text-slate-200 custom-scrollbar">
+      <div className="max-w-7xl mx-auto space-y-6">
+        
+        {/* HEADER & FILTROS */}
+        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl flex flex-col gap-6">
+          <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+            <div>
+              <h1 className="text-2xl font-black text-white tracking-tight flex items-center gap-3">
+                <TrendingUp className="text-fuchsia-500 w-7 h-7" />
+                Inteligência de Vendas
+              </h1>
+              <p className="text-slate-400 text-sm mt-1">
+                Análise em tempo real do PDV via API REST.
+              </p>
+            </div>
+          </div>
+          
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 w-full">
+            
+            {/* Search Input */}
+            <div className="relative w-full">
+              <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                <Search className="h-4 w-4 text-slate-500" />
+              </div>
+              <input
+                type="text"
+                placeholder="Buscar item..."
+                value={searchItem}
+                onChange={(e) => setSearchItem(e.target.value)}
+                className="w-full bg-slate-950 border border-slate-800 text-white rounded-lg pl-10 pr-4 py-2.5 text-sm focus:outline-none focus:ring-1 focus:ring-fuchsia-500 transition-colors"
+              />
+            </div>
+
+            {/* Select Período */}
+            <select
+              value={selectedPeriodo}
+              onChange={(e) => setSelectedPeriodo(e.target.value)}
+              className="w-full bg-slate-950 border border-slate-800 text-white rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-1 focus:ring-fuchsia-500 transition-colors truncate"
             >
-              <UploadCloud className="h-4 w-4" />
-              Adicionar Planilha
-            </button>
-          )}
-          {registrosDb.length > 0 && (
-            <button
-              onClick={handleClearData}
-              disabled={loading}
-              className="px-4 py-2 bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/20 rounded-lg text-sm font-medium text-rose-400 transition flex items-center justify-center gap-2 disabled:opacity-50"
+              {periodos.map(p => (
+                <option key={p} value={p}>{p === "Todos" ? "Todos os Períodos" : p}</option>
+              ))}
+            </select>
+
+            {/* Select Grupo */}
+            <select
+              value={selectedGrupo}
+              onChange={(e) => setSelectedGrupo(e.target.value)}
+              className="w-full bg-slate-950 border border-slate-800 text-white rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-1 focus:ring-fuchsia-500 transition-colors truncate"
             >
-              <Trash2 className="h-4 w-4" />
-              Limpar Base de Dados
-            </button>
-          )}
+              {grupos.map(g => (
+                <option key={g} value={g}>{g === "Todos" ? "Todas as Categorias" : g}</option>
+              ))}
+            </select>
+
+            {/* Select Garçom */}
+            <select
+              value={selectedGarcom}
+              onChange={(e) => setSelectedGarcom(e.target.value)}
+              className="w-full bg-slate-950 border border-slate-800 text-white rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-1 focus:ring-fuchsia-500 transition-colors truncate"
+            >
+              {garcons.map(g => (
+                <option key={g} value={g}>{g === "Todos" ? "Todos os Garçons" : g}</option>
+              ))}
+            </select>
+
+          </div>
         </div>
-      </div>
 
-      <input
-        type="file"
-        accept=".xlsx, .csv"
-        className="hidden"
-        onChange={handleFileUpload}
-        ref={fileInputRef}
-        disabled={loading}
-      />
-
-      {/* UPLOAD AREA */}
-      {registrosDb.length === 0 && (
-        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-8 flex flex-col items-center justify-center border-dashed relative">
-          <button
-            onClick={() => fileInputRef.current?.click()}
-            disabled={loading}
-            className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-            aria-label="Upload file"
-          />
-
-          {loading ? (
-            <div className="flex flex-col items-center">
-              <div className="h-10 w-10 border-4 border-fuchsia-500 border-t-transparent rounded-full animate-spin mb-4"></div>
-              <p className="text-slate-300 font-medium">
-                Processando e gravando dados...
-              </p>
-              <p className="text-slate-500 text-xs mt-1">
-                Isso pode levar alguns segundos
-              </p>
+        {/* KPI CARDS */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 flex items-start gap-4 hover:border-fuchsia-500/30 transition-colors shadow-lg overflow-hidden">
+            <div className="bg-emerald-500/10 p-3 rounded-lg text-emerald-500 shrink-0">
+              <DollarSign className="w-6 h-6" />
             </div>
-          ) : (
-            <div className="flex flex-col items-center text-center">
-              <div className="h-16 w-16 bg-slate-800 rounded-full flex items-center justify-center mb-4 text-fuchsia-400">
-                <UploadCloud className="h-8 w-8" />
-              </div>
-              <h3 className="text-lg font-bold text-slate-200">
-                Arraste seu relatório aqui
+            <div className="min-w-0">
+              <p className="text-sm text-slate-400 font-medium truncate">Faturamento Bruto</p>
+              <h3 className="text-2xl font-black text-white mt-1 truncate">
+                {formatCurrency(kpis.totalFaturado)}
               </h3>
-              <p className="text-slate-500 text-sm mt-1 max-w-md">
-                Suporta planilhas Excel (.xlsx, .csv) do Softcom contendo as
-                colunas de Garçom, Produto, Grupo, Quantidade e Valor Venda.
-              </p>
-              <button className="mt-6 px-6 py-2.5 bg-fuchsia-600 hover:bg-fuchsia-500 text-white rounded-lg text-sm font-medium transition shadow-lg flex items-center gap-2">
-                <FileSpreadsheet className="h-4 w-4" />
-                Selecionar Arquivo
-              </button>
-            </div>
-          )}
-        </div>
-      )}
-
-      {error && (
-        <div className="bg-rose-500/10 border border-rose-500/20 text-rose-400 p-4 rounded-xl flex items-start gap-3">
-          <AlertCircle className="h-5 w-5 shrink-0 mt-0.5" />
-          <div className="text-sm">
-            <p className="font-semibold">
-              Erro na leitura ou gravação do relatório
-            </p>
-            <p className="opacity-80 mt-1">{error}</p>
-          </div>
-        </div>
-      )}
-
-      {/* RESULTADOS */}
-      {kpis && registrosDb.length > 0 && !loading && (
-        <div className="space-y-6 animate-in slide-in-from-bottom-4 duration-500">
-          <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4 border-b border-slate-800 pb-4">
-            <h2 className="text-xl font-bold text-white tracking-tight">
-              Análise Consolidada
-            </h2>
-
-            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-4 w-full lg:w-auto">
-              <div className="flex flex-col sm:flex-row sm:items-center gap-1.5 sm:gap-2 w-full sm:w-auto">
-                <span className="text-sm text-slate-400 font-medium">
-                  Garçom:
-                </span>
-                <select
-                  value={selectedGarcom}
-                  onChange={(e) => setSelectedGarcom(e.target.value)}
-                  className="bg-slate-900 border border-slate-700 text-white rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-fuchsia-500 w-full sm:w-auto"
-                >
-                  {garconsDisponiveis.map((garcom) => (
-                    <option key={garcom} value={garcom}>
-                      {garcom}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div className="flex flex-col sm:flex-row sm:items-center gap-1.5 sm:gap-2 relative w-full sm:w-auto">
-                <span className="text-sm text-slate-400 font-medium">
-                  Itens:
-                </span>
-                <div className="relative w-full sm:w-auto">
-                  <button
-                    onClick={() => setShowItensDropdown(!showItensDropdown)}
-                    className="bg-slate-900 border border-slate-700 text-white rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-fuchsia-500 w-full sm:min-w-[160px] text-left flex justify-between items-center"
-                  >
-                    <span className="truncate">
-                      {selectedItens.length === 0
-                        ? "Todos os Itens"
-                        : `${selectedItens.length} selecionado(s)`}
-                    </span>
-                    <span className="ml-2 text-xs">▼</span>
-                  </button>
-
-                  {showItensDropdown && (
-                    <div className="absolute top-full left-0 sm:left-auto sm:right-0 mt-1 w-full sm:w-64 bg-slate-800 border border-slate-700 rounded-lg shadow-xl z-50 max-h-80 overflow-y-auto">
-                      <div className="p-2 flex flex-col gap-1">
-                        <div className="relative mb-2">
-                          <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 text-slate-400" />
-                          <input
-                            type="text"
-                            placeholder="Buscar item..."
-                            value={searchTermItens}
-                            onChange={(e) => setSearchTermItens(e.target.value)}
-                            className="w-full bg-slate-900 border border-slate-700 text-white text-xs rounded px-7 py-1.5 focus:outline-none focus:border-fuchsia-500"
-                          />
-                        </div>
-                        <label className="flex items-center gap-2 px-2 py-1.5 hover:bg-slate-700 rounded cursor-pointer">
-                          <input
-                            type="checkbox"
-                            checked={selectedItens.length === 0}
-                            onChange={() => setSelectedItens([])}
-                            className="rounded border-slate-600 text-fuchsia-500 focus:ring-fuchsia-500 bg-slate-900"
-                          />
-                          <span className="text-sm text-white">
-                            Todos (Limpar Filtros)
-                          </span>
-                        </label>
-                        <div className="h-px bg-slate-700 my-1"></div>
-                        {itensDisponiveis
-                          .filter((item) => item.toLowerCase().includes(searchTermItens.toLowerCase()))
-                          .map((item) => (
-                          <label
-                            key={item}
-                            className="flex items-center gap-2 px-2 py-1.5 hover:bg-slate-700 rounded cursor-pointer"
-                          >
-                            <input
-                              type="checkbox"
-                              checked={selectedItens.includes(item)}
-                              onChange={() => {
-                                setSelectedItens((prev) =>
-                                  prev.includes(item)
-                                    ? prev.filter((i) => i !== item)
-                                    : [...prev, item],
-                                );
-                              }}
-                              className="rounded border-slate-600 text-fuchsia-500 focus:ring-fuchsia-500 bg-slate-900"
-                            />
-                            <span className="text-sm text-white">{item}</span>
-                          </label>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              <div className="flex flex-col sm:flex-row sm:items-center gap-1.5 sm:gap-2 relative w-full sm:w-auto">
-                <span className="text-sm text-slate-400 font-medium">
-                  Grupos:
-                </span>
-                <div className="relative w-full sm:w-auto">
-                  <button
-                    onClick={() => setShowGruposDropdown(!showGruposDropdown)}
-                    className="bg-slate-900 border border-slate-700 text-white rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-fuchsia-500 w-full sm:min-w-[160px] text-left flex justify-between items-center"
-                  >
-                    <span className="truncate">
-                      {selectedGrupos.length === 0
-                        ? "Todos os Grupos"
-                        : `${selectedGrupos.length} selecionado(s)`}
-                    </span>
-                    <span className="ml-2 text-xs">▼</span>
-                  </button>
-
-                  {showGruposDropdown && (
-                    <div className="absolute top-full left-0 sm:left-auto sm:right-0 mt-1 w-full sm:w-64 bg-slate-800 border border-slate-700 rounded-lg shadow-xl z-50 max-h-64 overflow-y-auto">
-                      <div className="p-2 flex flex-col gap-1">
-                        <label className="flex items-center gap-2 px-2 py-1.5 hover:bg-slate-700 rounded cursor-pointer">
-                          <input
-                            type="checkbox"
-                            checked={selectedGrupos.length === 0}
-                            onChange={() => setSelectedGrupos([])}
-                            className="rounded border-slate-600 text-fuchsia-500 focus:ring-fuchsia-500 bg-slate-900"
-                          />
-                          <span className="text-sm text-white">
-                            Todos (Limpar Filtros)
-                          </span>
-                        </label>
-                        <div className="h-px bg-slate-700 my-1"></div>
-                        {gruposDisponiveis.map((grupo) => (
-                          <label
-                            key={grupo}
-                            className="flex items-center gap-2 px-2 py-1.5 hover:bg-slate-700 rounded cursor-pointer"
-                          >
-                            <input
-                              type="checkbox"
-                              checked={selectedGrupos.includes(grupo)}
-                              onChange={() => {
-                                setSelectedGrupos((prev) =>
-                                  prev.includes(grupo)
-                                    ? prev.filter((g) => g !== grupo)
-                                    : [...prev, grupo],
-                                );
-                              }}
-                              className="rounded border-slate-600 text-fuchsia-500 focus:ring-fuchsia-500 bg-slate-900"
-                            />
-                            <span className="text-sm text-white">{grupo}</span>
-                          </label>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </div>
             </div>
           </div>
-
-          {/* KPIs GRID */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-            <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 flex flex-col justify-center">
-              <p className="text-xs text-slate-500 font-mono uppercase tracking-wider mb-2 flex items-center gap-1.5">
-                <DollarSign className="h-3.5 w-3.5 text-emerald-400" />
-                Venda Total Bruta
-              </p>
-              <p className="text-2xl font-bold font-mono text-white">
-                R${" "}
-                {kpis.totalVendas.toLocaleString("pt-BR", {
-                  minimumFractionDigits: 2,
-                })}
-              </p>
+          
+          <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 flex items-start gap-4 hover:border-fuchsia-500/30 transition-colors shadow-lg overflow-hidden">
+            <div className="bg-blue-500/10 p-3 rounded-lg text-blue-500 shrink-0">
+              <Package className="w-6 h-6" />
             </div>
-
-            <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 flex flex-col justify-center">
-              <p className="text-xs text-slate-500 font-mono uppercase tracking-wider mb-2 flex items-center gap-1.5">
-                <BarChart3 className="h-3.5 w-3.5 text-amber-400" />
-                Volume de Itens Vendidos
-              </p>
-              <p className="text-2xl font-bold font-mono text-white">
-                {kpis.totalItens}{" "}
-                <span className="text-sm text-slate-500 font-sans">unid.</span>
-              </p>
-            </div>
-
-            <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 flex flex-col justify-center">
-              <p className="text-xs text-slate-500 font-mono uppercase tracking-wider mb-2 flex items-center gap-1.5">
-                <TrendingUp className="h-3.5 w-3.5 text-blue-400" />
-                Ticket Médio (por item)
-              </p>
-              <p className="text-2xl font-bold font-mono text-white">
-                R${" "}
-                {kpis.ticketMedio.toLocaleString("pt-BR", {
-                  minimumFractionDigits: 2,
-                })}
-              </p>
-            </div>
-
-            <div className="bg-gradient-to-br from-fuchsia-900/40 to-slate-900 border border-fuchsia-500/20 rounded-xl p-5 flex flex-col justify-center relative overflow-hidden">
-              <Award className="absolute -right-4 -bottom-4 h-24 w-24 text-fuchsia-500/10 rotate-12" />
-              <p className="text-xs text-fuchsia-400 font-mono uppercase tracking-wider mb-2 flex items-center gap-1.5">
-                <Trophy className="h-3.5 w-3.5" />
-                Top Garçom
-              </p>
-              <p className="text-xl font-bold text-white relative z-10 truncate">
-                {kpis.topGarcom}
-              </p>
-            </div>
-          </div>
-
-          {/* GRÁFICOS */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-            <div className="bg-slate-900 border border-slate-800 rounded-xl p-5">
-              <h3 className="text-sm font-semibold text-slate-200 uppercase tracking-wider font-mono mb-1 flex items-center gap-2">
-                <BarChart3 className="h-4 w-4 text-fuchsia-400" />
-                Top 5 Itens Mais Vendidos (Qtd)
+            <div className="min-w-0">
+              <p className="text-sm text-slate-400 font-medium truncate">Volume de Itens</p>
+              <h3 className="text-2xl font-black text-white mt-1 truncate">
+                {kpis.totalItens.toLocaleString('pt-BR')} <span className="text-sm font-medium text-slate-500">un.</span>
               </h3>
-              <p className="text-xs text-slate-500 mb-4 font-sans truncate">
-                {selectedGrupos.length === 0
-                  ? "Todos os grupos"
-                  : `Filtrado por: ${selectedGrupos.join(", ")}`}
+            </div>
+          </div>
+
+          <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 flex items-start gap-4 hover:border-fuchsia-500/30 transition-colors shadow-lg overflow-hidden">
+            <div className="bg-purple-500/10 p-3 rounded-lg text-purple-500 shrink-0">
+              <TrendingUp className="w-6 h-6" />
+            </div>
+            <div className="min-w-0">
+              <p className="text-sm text-slate-400 font-medium truncate">Ticket Médio</p>
+              <h3 className="text-2xl font-black text-white mt-1 truncate">
+                {formatCurrency(kpis.ticketMedio)}
+              </h3>
+            </div>
+          </div>
+
+          <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 flex items-start gap-4 hover:border-fuchsia-500/30 transition-colors shadow-lg overflow-hidden">
+            <div className="bg-amber-500/10 p-3 rounded-lg text-amber-500 shrink-0">
+              <Award className="w-6 h-6" />
+            </div>
+            <div className="min-w-0">
+              <p className="text-sm text-slate-400 font-medium truncate">Destaque de Vendas</p>
+              <h3 className="text-xl font-black text-white mt-1 truncate">
+                {kpis.topGarcom.nome}
+              </h3>
+              <p className="text-xs text-emerald-400 mt-1 font-mono font-medium truncate">
+                {formatCurrency(kpis.topGarcom.valor)}
               </p>
-              <div className="h-64">
+            </div>
+          </div>
+        </div>
+
+        {/* CHARTS SECTION */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          {/* Top 5 Items Chart */}
+          <div className="bg-slate-900 border border-slate-800 rounded-xl p-6 shadow-lg">
+            <h3 className="text-sm font-semibold text-slate-200 uppercase tracking-wider font-mono mb-6">
+              Top 5 Itens (Faturamento)
+            </h3>
+            <div className="h-[300px] w-full">
+              {top5Itens.length > 0 ? (
                 <ResponsiveContainer width="100%" height="100%">
-                  <BarChart
-                    data={vendas.slice(0, 5)}
-                    layout="vertical"
-                    margin={{ top: 5, right: 30, left: 20, bottom: 5 }}
-                  >
-                    <CartesianGrid
-                      strokeDasharray="3 3"
-                      stroke="#334155"
-                      horizontal={false}
+                  <BarChart data={top5Itens} layout="vertical" margin={{ top: 0, right: 0, left: 40, bottom: 0 }}>
+                    <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#1e293b" />
+                    <XAxis type="number" stroke="#64748b" fontSize={12} tickFormatter={(v) => `R$${v}`} />
+                    <YAxis dataKey="nome" type="category" stroke="#94a3b8" fontSize={11} width={120} />
+                    <RechartsTooltip 
+                      formatter={(value: number) => formatCurrency(value)}
+                      contentStyle={{ backgroundColor: '#0f172a', border: '1px solid #1e293b', borderRadius: '8px' }}
+                      itemStyle={{ color: '#e2e8f0', fontWeight: 'bold' }}
+                      cursor={false}
                     />
-                    <XAxis
-                      type="number"
-                      stroke="#94a3b8"
-                      fontSize={12}
-                      tickLine={false}
-                      axisLine={false}
-                    />
-                    <YAxis
-                      dataKey="nome"
-                      type="category"
-                      stroke="#94a3b8"
-                      fontSize={10}
-                      width={100}
-                      tickLine={false}
-                      axisLine={false}
-                    />
-                    <Tooltip
-                      cursor={{ fill: "#1e293b" }}
-                      contentStyle={{
-                        backgroundColor: "#0f172a",
-                        borderColor: "#334155",
-                        color: "#f8fafc",
-                        borderRadius: "8px",
-                      }}
-                      itemStyle={{ color: "#e879f9" }}
-                    />
-                    <Bar
-                      dataKey="quantidade"
-                      fill="#d946ef"
-                      radius={[0, 4, 4, 0]}
-                    >
-                      {vendas.slice(0, 5).map((entry, index) => (
-                        <Cell
-                          key={`cell-${index}`}
-                          fill={index === 0 ? "#d946ef" : "#c026d3"}
-                        />
+                    <Bar dataKey="valor" radius={[0, 4, 4, 0]}>
+                      {top5Itens.map((entry, index) => (
+                        <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
                       ))}
                     </Bar>
                   </BarChart>
                 </ResponsiveContainer>
-              </div>
+              ) : (
+                <div className="flex h-full items-center justify-center text-slate-500">Nenhum dado encontrado para os filtros.</div>
+              )}
             </div>
+          </div>
 
-            <div className="bg-slate-900 border border-slate-800 rounded-xl p-5">
-              <h3 className="text-sm font-semibold text-slate-200 uppercase tracking-wider font-mono mb-1 flex items-center gap-2">
-                <Award className="h-4 w-4 text-amber-400" />
-                Venda por Garçom (R$)
-              </h3>
-              <p className="text-xs text-slate-500 mb-4 font-sans truncate">
-                {selectedGrupos.length === 0
-                  ? "Todos os grupos"
-                  : `Filtrado por: ${selectedGrupos.join(", ")}`}
-              </p>
-              <div className="h-64">
+          {/* Vendas Por Garçom Chart */}
+          <div className="bg-slate-900 border border-slate-800 rounded-xl p-6 shadow-lg">
+            <h3 className="text-sm font-semibold text-slate-200 uppercase tracking-wider font-mono mb-6">
+              Faturamento por Garçom
+            </h3>
+            <div className="h-[300px] w-full">
+              {garconsDesempenho.length > 0 ? (
                 <ResponsiveContainer width="100%" height="100%">
-                  <BarChart
-                    data={vendasPorGarcom.slice(0, 10)}
-                    margin={{ top: 20, right: 30, left: 20, bottom: 5 }}
-                  >
-                    <CartesianGrid
-                      strokeDasharray="3 3"
-                      stroke="#334155"
-                      vertical={false}
+                  <BarChart data={garconsDesempenho.slice(0, 10)} margin={{ top: 0, right: 0, left: 0, bottom: 20 }}>
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#1e293b" />
+                    <XAxis dataKey="nome" stroke="#94a3b8" fontSize={11} interval={0} angle={-45} textAnchor="end" />
+                    <YAxis stroke="#64748b" fontSize={12} tickFormatter={(v) => `R$${v}`} />
+                    <RechartsTooltip 
+                      formatter={(value: number) => formatCurrency(value)}
+                      contentStyle={{ backgroundColor: '#0f172a', border: '1px solid #1e293b', borderRadius: '8px' }}
+                      itemStyle={{ color: '#e2e8f0', fontWeight: 'bold' }}
+                      cursor={false}
                     />
-                    <XAxis
-                      dataKey="nome"
-                      stroke="#94a3b8"
-                      fontSize={12}
-                      tickLine={false}
-                      axisLine={false}
-                    />
-                    <YAxis
-                      stroke="#94a3b8"
-                      fontSize={12}
-                      tickLine={false}
-                      axisLine={false}
-                      tickFormatter={(val) => `R$${val / 1000}k`}
-                    />
-                    <Tooltip
-                      cursor={{ fill: "#1e293b" }}
-                      contentStyle={{
-                        backgroundColor: "#0f172a",
-                        borderColor: "#334155",
-                        color: "#f8fafc",
-                        borderRadius: "8px",
-                      }}
-                      itemStyle={{ color: "#fbbf24" }}
-                      formatter={(value: number) => [
-                        `R$ ${value.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}`,
-                        "Total",
-                      ]}
-                    />
-                    <Bar
-                      dataKey="valor"
-                      fill="#f59e0b"
-                      radius={[4, 4, 0, 0]}
-                      maxBarSize={60}
-                    />
+                    <Bar dataKey="valor" radius={[4, 4, 0, 0]} fill="#d946ef" />
                   </BarChart>
                 </ResponsiveContainer>
-              </div>
+              ) : (
+                <div className="flex h-full items-center justify-center text-slate-500">Nenhum dado encontrado para os filtros.</div>
+              )}
             </div>
           </div>
+        </div>
 
-          {/* LISTA DE ITENS */}
-          <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden">
-            <div className="px-6 py-4 border-b border-slate-800 flex justify-between items-center bg-slate-900/50">
-              <h3 className="text-sm font-semibold text-slate-200 uppercase tracking-wider font-mono">
-                Ranking de Produtos Vendidos
-              </h3>
-            </div>
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[600px] text-left border-collapse">
-                <thead>
-                  <tr className="bg-slate-900/80 border-b border-slate-800 text-xs uppercase tracking-wider text-slate-400 font-mono">
-                    <th className="p-4 font-semibold w-12 text-center">#</th>
-                    <th className="p-4 font-semibold">Produto</th>
-                    <th className="p-4 font-semibold">Grupo</th>
-                    <th className="p-4 font-semibold text-right">Qtd.</th>
-                    <th className="p-4 font-semibold text-right text-emerald-400">
-                      Total Venda
-                    </th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-800/50 text-sm">
-                  {vendas.slice(0, 100).map((item, idx) => (
-                    <tr key={idx} className="hover:bg-slate-800/30 transition">
-                      <td className="p-4 text-center font-mono text-slate-500">
-                        {idx + 1}
-                      </td>
-                      <td className="p-4">
-                        <p className="font-semibold text-slate-200">
-                          {item.nome}
-                        </p>
-                      </td>
-                      <td className="p-4">
-                        <span className="px-2 py-1 bg-slate-800 rounded text-xs text-slate-300">
-                          {item.grupo}
-                        </span>
-                      </td>
-                      <td className="p-4 text-right font-mono text-slate-300">
-                        {item.quantidade}
-                      </td>
-                      <td className="p-4 text-right font-mono text-white font-bold">
-                        R${" "}
-                        {item.valorTotal.toLocaleString("pt-BR", {
-                          minimumFractionDigits: 2,
-                        })}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+        {/* DETALHES DOS GARÇONS */}
+        <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden shadow-lg mt-6">
+          <div className="px-6 py-4 border-b border-slate-800 bg-slate-900/50">
+            <h3 className="text-sm font-semibold text-slate-200 uppercase tracking-wider font-mono">
+              Desempenho Detalhado por Garçom
+            </h3>
           </div>
-
-          {/* DESEMPENHO INDIVIDUAL DOS GARÇONS */}
-          <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden mt-6">
-            <div className="px-6 py-4 border-b border-slate-800 flex justify-between items-center bg-slate-900/50">
-              <h3 className="text-sm font-semibold text-slate-200 uppercase tracking-wider font-mono">
-                Desempenho Individual dos Garçons
-              </h3>
-            </div>
-            <div className="p-6">
-              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-                {vendasPorGarcom.map((garcom, idx) => (
-                  <div
-                    key={idx}
-                    className="bg-slate-950/50 border border-slate-800/80 rounded-lg p-5 hover:border-slate-700 transition"
-                  >
+          <div className="p-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+              {garconsDesempenho.length > 0 ? (
+                garconsDesempenho.map((garcom, idx) => (
+                  <div key={idx} className="bg-slate-950/50 border border-slate-800/80 rounded-lg p-5 hover:border-slate-700 transition">
                     <div className="flex justify-between items-start mb-4">
                       <div>
-                        <h4 className="font-bold text-white text-lg">
-                          {garcom.nome}
-                        </h4>
-                        <p className="text-sm text-slate-400">
-                          Total vendido: R${" "}
-                          {garcom.valor.toLocaleString("pt-BR", {
-                            minimumFractionDigits: 2,
-                          })}
+                        <h4 className="font-bold text-white text-lg">{garcom.nome}</h4>
+                        <p className="text-sm text-emerald-400 font-mono font-medium">
+                          {formatCurrency(garcom.valor)}
+                        </p>
+                        <p className="text-xs text-slate-500 mt-0.5">
+                          {garcom.quantidade} itens vendidos
                         </p>
                       </div>
-                      <div className="h-10 w-10 bg-amber-500/10 rounded-full flex items-center justify-center text-amber-500">
+                      <div className="h-10 w-10 bg-amber-500/10 rounded-full flex items-center justify-center text-amber-500 shrink-0">
                         <Award className="h-5 w-5" />
                       </div>
                     </div>
-
-                    <div className="mt-4">
-                      <p className="text-xs text-slate-500 font-mono uppercase tracking-wider mb-2">
-                        Itens Vendidos por Categoria
+                    <div className="mt-4 pt-4 border-t border-slate-800/50">
+                      <p className="text-[10px] text-slate-500 font-mono uppercase tracking-widest mb-3">
+                        Volume por Categoria
                       </p>
                       <div className="space-y-2">
                         {Object.entries(garcom.categorias)
-                          .sort((a: any, b: any) => b[1] - a[1])
-                          .map(([cat, qtd]: [string, any], cIdx) => (
-                            <div
-                              key={cIdx}
-                              className="flex justify-between items-center text-sm"
-                            >
-                              <span className="text-slate-300">{cat}</span>
-                              <span className="text-slate-400 font-mono bg-slate-800/50 px-2 py-0.5 rounded text-xs">
+                          .sort((a: [string, number], b: [string, number]) => b[1] - a[1])
+                          .map(([cat, qtd], cIdx) => (
+                            <div key={cIdx} className="flex justify-between items-center text-sm">
+                              <span className="text-slate-300 truncate pr-2">{cat}</span>
+                              <span className="text-slate-400 font-mono bg-slate-900 px-2 py-0.5 rounded text-xs shrink-0">
                                 {qtd} un
                               </span>
                             </div>
@@ -897,111 +395,17 @@ export default function RelatoriosVendasModule() {
                       </div>
                     </div>
                   </div>
-                ))}
-              </div>
-            </div>
-          </div>
-          
-          {/* QUEM VENDEU MAIS DE UM DETERMINADO ITEM */}
-          {selectedItens.length > 0 && (
-            <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden mt-6">
-              <div className="px-6 py-4 border-b border-slate-800 flex justify-between items-center bg-slate-900/50">
-                <h3 className="text-sm font-semibold text-fuchsia-400 uppercase tracking-wider font-mono flex items-center gap-2">
-                  <Award className="h-4 w-4" />
-                  Ranking de Vendas por Item Selecionado
-                </h3>
-              </div>
-              <div className="p-6">
-                <p className="text-sm text-slate-400 mb-4">
-                  Mostrando os garçons que mais venderam os itens: <span className="font-bold text-slate-200">{selectedItens.join(", ")}</span>
-                </p>
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                  {vendasPorGarcom
-                    .filter(g => Object.keys(g.categorias).length > 0)
-                    .map((garcom, idx) => (
-                    <div key={idx} className="bg-slate-950 border border-slate-800/80 rounded-lg p-4 flex items-center justify-between">
-                      <div className="flex items-center gap-3">
-                        <div className="h-8 w-8 rounded-full bg-slate-800 flex items-center justify-center font-bold text-slate-300 text-xs">
-                          {idx + 1}º
-                        </div>
-                        <div>
-                          <p className="font-semibold text-slate-200">{garcom.nome}</p>
-                          <p className="text-xs text-slate-500">Total nesses itens: <span className="font-bold text-fuchsia-400">{garcom.quantidade} unid.</span></p>
-                        </div>
-                      </div>
-                      <div className="text-right">
-                        <p className="font-bold text-white font-mono">
-                          R$ {garcom.valor.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}
-                        </p>
-                      </div>
-                    </div>
-                  ))}
+                ))
+              ) : (
+                <div className="col-span-full py-8 text-center text-slate-500">
+                  Nenhum registro encontrado para os filtros selecionados.
                 </div>
-              </div>
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* MODAL DE PERÍODO */}
-      {showPeriodModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-in fade-in duration-200">
-          <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-md shadow-2xl overflow-hidden">
-            <div className="p-6 border-b border-slate-800">
-              <h2 className="text-xl font-bold text-white">Período da Planilha</h2>
-              <p className="text-sm text-slate-400 mt-1">
-                Selecione o período correspondente aos dados da planilha que está sendo enviada.
-              </p>
-            </div>
-            <div className="p-6 space-y-4">
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-1.5">
-                  <label className="text-sm font-medium text-slate-300">Data Inicial</label>
-                  <input
-                    type="date"
-                    value={periodoInicio}
-                    onChange={(e) => setPeriodoInicio(e.target.value)}
-                    className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-fuchsia-500 focus:ring-1 focus:ring-fuchsia-500 transition-colors"
-                  />
-                </div>
-                <div className="space-y-1.5">
-                  <label className="text-sm font-medium text-slate-300">Data Final</label>
-                  <input
-                    type="date"
-                    value={periodoFim}
-                    onChange={(e) => setPeriodoFim(e.target.value)}
-                    className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-fuchsia-500 focus:ring-1 focus:ring-fuchsia-500 transition-colors"
-                  />
-                </div>
-              </div>
-            </div>
-            <div className="p-6 border-t border-slate-800 flex justify-end gap-3 bg-slate-900/50">
-              <button
-                onClick={handleCancelPeriod}
-                className="px-4 py-2 text-sm font-medium text-slate-300 hover:text-white transition-colors"
-              >
-                Cancelar
-              </button>
-              <button
-                onClick={handleConfirmPeriod}
-                className="px-5 py-2 bg-fuchsia-600 hover:bg-fuchsia-500 text-white rounded-lg text-sm font-medium transition-colors shadow-lg shadow-fuchsia-500/20"
-              >
-                Confirmar e Enviar
-              </button>
+              )}
             </div>
           </div>
         </div>
-      )}
 
-      {/* LOADING OVERLAY ON DELETE OR UPLOAD */}
-      {loading && registrosDb.length > 0 && (
-        <div className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-slate-950/80 backdrop-blur-sm">
-          <div className="h-12 w-12 border-4 border-fuchsia-500 border-t-transparent rounded-full animate-spin mb-4"></div>
-          <p className="text-white font-medium text-lg">
-            {loadingMsg || "Processando..."}
-          </p>
-        </div>
-      )}
+      </div>
     </div>
   );
 }

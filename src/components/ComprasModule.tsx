@@ -134,11 +134,14 @@ export default function ComprasModule() {
         const subTotal = subData.total;
         const tipos = subData.tipos || {};
 
-        const formattedData = Object.entries(tipos).map(([name, tipoData]) => ({
-          name,
-          value: tipoData.total,
-          percentage: subTotal > 0 ? (tipoData.total / subTotal) * 100 : 0
-        }));
+        const formattedData = Object.entries(tipos).map(([name, tipoData]) => {
+          const data = tipoData as TipoData;
+          return {
+            name,
+            value: data.total,
+            percentage: subTotal > 0 ? (data.total / subTotal) * 100 : 0
+          };
+        });
         
         formattedData.sort((a, b) => b.value - a.value);
         return formattedData;
@@ -147,22 +150,28 @@ export default function ComprasModule() {
         const catTotal = catData.total;
         const subcategorias = catData.subcategorias || {};
 
-        const formattedData = Object.entries(subcategorias).map(([name, subCatData]) => ({
-          name,
-          value: subCatData.total,
-          percentage: catTotal > 0 ? (subCatData.total / catTotal) * 100 : 0
-        }));
+        const formattedData = Object.entries(subcategorias).map(([name, subCatData]) => {
+          const data = subCatData as SubcategoriaData;
+          return {
+            name,
+            value: data.total,
+            percentage: catTotal > 0 ? (data.total / catTotal) * 100 : 0
+          };
+        });
         
         formattedData.sort((a, b) => b.value - a.value);
         return formattedData;
       }
     } else {
       // NÍVEL 1: Categorias
-      const formattedData = Object.entries(categorias || {}).map(([name, catData]) => ({
-        name,
-        value: catData.total,
-        percentage: periodTotal > 0 ? (catData.total / periodTotal) * 100 : 0
-      }));
+      const formattedData = Object.entries(categorias || {}).map(([name, catData]) => {
+        const data = catData as CategoriaData;
+        return {
+          name,
+          value: data.total,
+          percentage: periodTotal > 0 ? (data.total / periodTotal) * 100 : 0
+        };
+      });
       
       formattedData.sort((a, b) => b.value - a.value);
       return formattedData;
@@ -178,8 +187,9 @@ export default function ComprasModule() {
     const results = Object.entries(itens)
       .filter(([nome]) => nome.toLowerCase().includes(termLower))
       .map(([nome, itemData]) => {
-        const precoMedio = (itemData.qtd && itemData.qtd > 0) ? (itemData.total / itemData.qtd) : 0;
-        return { nome, valor: itemData.total, qtd: itemData.qtd, precoMedio };
+        const data = itemData as ItemData;
+        const precoMedio = (data.qtd && data.qtd > 0) ? (data.total / data.qtd) : 0;
+        return { nome, valor: data.total, qtd: data.qtd, precoMedio };
       });
       
     results.sort((a, b) => b.valor - a.valor);
@@ -197,8 +207,9 @@ export default function ComprasModule() {
     if (!tipo) return [];
 
     const results = Object.entries(tipo.itens || {}).map(([nome, itemData]) => {
-      const precoMedio = (itemData.qtd && itemData.qtd > 0) ? (itemData.total / itemData.qtd) : 0;
-      return { nome, valor: itemData.total, qtd: itemData.qtd, precoMedio };
+      const data = itemData as ItemData;
+      const precoMedio = (data.qtd && data.qtd > 0) ? (data.total / data.qtd) : 0;
+      return { nome, valor: data.total, qtd: data.qtd, precoMedio };
     });
 
     results.sort((a, b) => b.valor - a.valor);
@@ -210,7 +221,8 @@ export default function ComprasModule() {
     const hist: { mes: string; preco: number; rawMes: number }[] = [];
     
     Object.entries(data.meses).forEach(([mesStr, mesData]) => {
-      const itemInfo = mesData.itensBusca?.[itemExpandido];
+      const pData = mesData as PeriodData;
+      const itemInfo = pData.itensBusca?.[itemExpandido];
       if (itemInfo && itemInfo.total > 0 && itemInfo.qtd && itemInfo.qtd > 0) {
         const preco = itemInfo.total / itemInfo.qtd;
         hist.push({
