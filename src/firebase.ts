@@ -14,6 +14,7 @@ import {
 } from "firebase/auth";
 import { 
   getFirestore, 
+  initializeFirestore,
   collection, 
   addDoc, 
   updateDoc, 
@@ -32,6 +33,7 @@ import {
 // Substitua os valores abaixo pelas credenciais geradas no console do Firebase:
 // https://console.firebase.google.com/
 // ============================================================================
+
 const firebaseConfig = {
   apiKey: "AIzaSyBpApuPKd44R-cYeWulXfO31zicyEaEOkI",
   authDomain: "gen-lang-client-0659252454.firebaseapp.com",
@@ -54,7 +56,10 @@ if (isConfigured) {
   try {
     const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();
     auth = getAuth(app);
-    db = getFirestore(app, "ai-studio-889f45a6-e68b-47c9-bb87-2fa91d25cdcd");
+    // Use experimentalAutoDetectLongPolling to bypass adblockers/VPNs blocking WebSockets in iframe
+    db = initializeFirestore(app, {
+      experimentalAutoDetectLongPolling: true
+    }, "ai-studio-889f45a6-e68b-47c9-bb87-2fa91d25cdcd");
     console.log("🔥 Firebase initialized successfully!");
   } catch (err) {
     console.error("❌ Error initializing Firebase:", err);

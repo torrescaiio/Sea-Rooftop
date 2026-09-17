@@ -1,10 +1,15 @@
 import React, { useEffect, useState, useMemo } from 'react';
-import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from 'recharts';
-import { Loader2, AlertCircle, Calendar, ChevronRight, Search, ArrowLeft } from 'lucide-react';
+import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid } from 'recharts';
+import { Loader2, AlertCircle, Calendar, ChevronRight, Search, ArrowLeft, TrendingUp } from 'lucide-react';
+
+interface ItemData {
+  total: number;
+  qtd: number;
+}
 
 interface TipoData {
   total: number;
-  itens: Record<string, number>;
+  itens: Record<string, ItemData>;
 }
 
 interface SubcategoriaData {
@@ -20,7 +25,7 @@ interface CategoriaData {
 interface PeriodData {
   total: number;
   categorias: Record<string, CategoriaData>;
-  itensBusca: Record<string, number>;
+  itensBusca: Record<string, ItemData>;
 }
 
 interface ComprasData {
@@ -63,6 +68,9 @@ export default function ComprasModule() {
   const [catAtiva, setCatAtiva] = useState<string | null>(null);
   const [subAtiva, setSubAtiva] = useState<string | null>(null);
   const [tipoAtivo, setTipoAtivo] = useState<string | null>(null);
+  
+  // Gráfico de Evolução (Inflação)
+  const [itemExpandido, setItemExpandido] = useState<string | null>(null);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -88,12 +96,17 @@ export default function ComprasModule() {
     fetchData();
   }, []);
 
-  // Reset do drill-down ao trocar de mês
+  // Reset de estados dependentes
   useEffect(() => {
     setCatAtiva(null);
     setSubAtiva(null);
     setTipoAtivo(null);
+    setItemExpandido(null);
   }, [mesSelecionado]);
+
+  useEffect(() => {
+    setItemExpandido(null);
+  }, [termoBusca, catAtiva, subAtiva, tipoAtivo]);
 
   const formatCurrency = (value: number) => {
     return new Intl.NumberFormat('pt-BR', {
@@ -159,15 +172,16 @@ export default function ComprasModule() {
   const searchResults = useMemo(() => {
     if (!currentPeriodData || !termoBusca.trim()) return [];
     
-    // Leitura atualizada para itensBusca
     const itens = currentPeriodData.itensBusca || {};
     const termLower = termoBusca.toLowerCase().trim();
     
     const results = Object.entries(itens)
       .filter(([nome]) => nome.toLowerCase().includes(termLower))
-      .map(([nome, valor]) => ({ nome, valor: valor as number }));
+      .map(([nome, itemData]) => {
+        const precoMedio = (itemData.qtd && itemData.qtd > 0) ? (itemData.total / itemData.qtd) : 0;
+        return { nome, valor: itemData.total, qtd: itemData.qtd, precoMedio };
+      });
       
-    // Sort descending by cost
     results.sort((a, b) => b.valor - a.valor);
     
     return results;
@@ -182,11 +196,34 @@ export default function ComprasModule() {
     const tipo = sub.tipos?.[tipoAtivo];
     if (!tipo) return [];
 
-    const results = Object.entries(tipo.itens || {}).map(([nome, valor]) => ({ nome, valor }));
-    // Ordena do item com maior valor para o menor
+    const results = Object.entries(tipo.itens || {}).map(([nome, itemData]) => {
+      const precoMedio = (itemData.qtd && itemData.qtd > 0) ? (itemData.total / itemData.qtd) : 0;
+      return { nome, valor: itemData.total, qtd: itemData.qtd, precoMedio };
+    });
+
     results.sort((a, b) => b.valor - a.valor);
     return results;
   }, [currentPeriodData, catAtiva, subAtiva, tipoAtivo]);
+
+  const historyData = useMemo(() => {
+    if (!itemExpandido || !data || !data.meses) return [];
+    const hist: { mes: string; preco: number; rawMes: number }[] = [];
+    
+    Object.entries(data.meses).forEach(([mesStr, mesData]) => {
+      const itemInfo = mesData.itensBusca?.[itemExpandido];
+      if (itemInfo && itemInfo.total > 0 && itemInfo.qtd && itemInfo.qtd > 0) {
+        const preco = itemInfo.total / itemInfo.qtd;
+        hist.push({
+          mes: nomesMeses[mesStr] ? nomesMeses[mesStr].substring(0, 3) : mesStr,
+          preco,
+          rawMes: parseInt(mesStr, 10)
+        });
+      }
+    });
+    
+    hist.sort((a, b) => a.rawMes - b.rawMes);
+    return hist.map(h => ({ mes: h.mes, preco: h.preco }));
+  }, [itemExpandido, data]);
 
   const availableMonths = useMemo(() => {
     if (!data || !data.meses) return [];
@@ -196,7 +233,6 @@ export default function ComprasModule() {
   const headerTotal = useMemo(() => {
     if (!currentPeriodData) return 0;
     
-    // Se estiver no modo de busca, mostrar soma do que foi encontrado
     if (termoBusca.trim().length > 0) {
       return searchResults.reduce((acc, curr) => acc + curr.valor, 0);
     }
@@ -249,6 +285,69 @@ export default function ComprasModule() {
   const isSearchActive = termoBusca.trim().length > 0;
   const isLevel4Active = tipoAtivo !== null;
 
+  const renderExpandedRow = (itemName: string) => {
+    if (itemExpandido !== itemName) return null;
+    
+    return (
+      <tr className="bg-zinc-900/60 border-b border-zinc-800/40">
+        <td colSpan={3} className="px-4 py-6">
+          <div className="flex flex-col gap-4 animate-in fade-in slide-in-from-top-2 duration-300">
+            <div className="flex items-center gap-2 text-zinc-400">
+              <TrendingUp className="w-4 h-4 text-cyan-500" />
+              <h4 className="text-xs font-bold uppercase tracking-widest text-cyan-500">
+                Histórico de Preço Médio (Inflação)
+              </h4>
+            </div>
+            
+            {historyData.length > 0 ? (
+              <div className="h-48 w-full mt-2">
+                <ResponsiveContainer width="100%" height="100%">
+                  <LineChart data={historyData} margin={{ top: 10, right: 30, left: 0, bottom: 0 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#27272a" vertical={false} />
+                    <XAxis 
+                      dataKey="mes" 
+                      stroke="#a1a1aa" 
+                      fontSize={10} 
+                      tickLine={false} 
+                      axisLine={false} 
+                      dy={10}
+                    />
+                    <YAxis 
+                      stroke="#a1a1aa" 
+                      fontSize={10} 
+                      tickLine={false} 
+                      axisLine={false} 
+                      tickFormatter={(val) => `R$ ${val}`} 
+                      dx={-10}
+                    />
+                    <Tooltip 
+                      formatter={(value: number) => [formatCurrency(value), 'Preço Médio']}
+                      contentStyle={{ backgroundColor: '#18181b', border: '1px solid #27272a', borderRadius: '12px', color: '#fff' }}
+                      labelStyle={{ color: '#06b6d4', fontWeight: 900, marginBottom: '4px' }}
+                      itemStyle={{ color: '#fff', fontWeight: 600 }}
+                    />
+                    <Line 
+                      type="monotone" 
+                      dataKey="preco" 
+                      stroke="#06b6d4" 
+                      strokeWidth={3} 
+                      dot={{ r: 4, fill: '#06b6d4', strokeWidth: 2, stroke: '#121212' }} 
+                      activeDot={{ r: 6, fill: '#06b6d4' }} 
+                    />
+                  </LineChart>
+                </ResponsiveContainer>
+              </div>
+            ) : (
+              <div className="text-zinc-500 text-sm italic py-4">
+                Dados insuficientes para traçar o gráfico de inflação (nenhum registro nos outros meses).
+              </div>
+            )}
+          </div>
+        </td>
+      </tr>
+    );
+  };
+
   return (
     <div className="p-4 sm:p-6 lg:p-8 h-full overflow-y-auto w-full flex justify-center items-start">
       <div className="bg-[#121212] border border-zinc-800 rounded-3xl p-8 sm:p-10 shadow-2xl w-full max-w-5xl mt-4">
@@ -271,7 +370,7 @@ export default function ComprasModule() {
                 <select 
                   value={mesSelecionado}
                   onChange={(e) => setMesSelecionado(e.target.value)}
-                  className="bg-zinc-900 border border-zinc-800 text-zinc-300 text-sm rounded-lg px-4 py-2.5 focus:outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500 font-medium cursor-pointer w-full md:w-56"
+                  className="bg-zinc-900 border border-zinc-800 text-zinc-300 text-sm rounded-lg px-4 py-2.5 focus:outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500 font-medium cursor-pointer w-full md:w-56 transition-colors"
                 >
                   <option value="geral">VISÃO GERAL (TODOS)</option>
                   {availableMonths.map(mes => (
@@ -300,14 +399,14 @@ export default function ComprasModule() {
 
         {/* Conditional View: Search Results vs Drill-down Level 4 vs Dashboard */}
         {isSearchActive ? (
-          <div className="flex flex-col h-[500px]">
+          <div className="flex flex-col h-[600px]">
             <div className="flex items-center justify-between mb-4">
               <p className="text-zinc-400 text-sm font-medium">
                 Encontrados <span className="text-white font-bold">{searchResults.length}</span> resultados para "{termoBusca}"
               </p>
               <button 
                 onClick={() => setTermoBusca("")}
-                className="text-xs text-rose-400 hover:text-rose-300 font-bold uppercase tracking-wider"
+                className="text-xs text-rose-400 hover:text-rose-300 font-bold uppercase tracking-wider transition-colors"
               >
                 Limpar Busca
               </button>
@@ -319,26 +418,38 @@ export default function ComprasModule() {
                   <thead className="sticky top-0 bg-[#121212]/95 backdrop-blur-md z-10">
                     <tr>
                       <th className="py-4 px-4 text-[10px] font-bold text-zinc-500 uppercase tracking-widest border-b border-zinc-800">Item</th>
+                      <th className="py-4 px-4 text-[10px] font-bold text-zinc-500 uppercase tracking-widest text-right border-b border-zinc-800">Preço Médio</th>
                       <th className="py-4 px-4 text-[10px] font-bold text-zinc-500 uppercase tracking-widest text-right border-b border-zinc-800">Custo Total</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-zinc-800/40">
                     {searchResults.length === 0 ? (
                       <tr>
-                        <td colSpan={2} className="py-12 text-center">
+                        <td colSpan={3} className="py-12 text-center">
                           <p className="text-zinc-500 text-sm font-medium">Nenhum item encontrado.</p>
                         </td>
                       </tr>
                     ) : (
-                      searchResults.map((item, index) => (
-                        <tr key={item.nome} className="hover:bg-zinc-800/40 transition-colors">
-                          <td className="py-4 px-4">
-                            <span className="text-sm font-bold text-zinc-200">{item.nome}</span>
-                          </td>
-                          <td className="py-4 px-4 text-right">
-                            <span className="text-sm font-mono font-medium text-emerald-400">{formatCurrency(item.valor)}</span>
-                          </td>
-                        </tr>
+                      searchResults.map((item) => (
+                        <React.Fragment key={item.nome}>
+                          <tr 
+                            onClick={() => setItemExpandido(prev => prev === item.nome ? null : item.nome)}
+                            className="hover:bg-zinc-800/40 transition-colors cursor-pointer group"
+                          >
+                            <td className="py-4 px-4">
+                              <span className="text-sm font-bold text-zinc-200 group-hover:text-cyan-400 transition-colors">{item.nome}</span>
+                            </td>
+                            <td className="py-4 px-4 text-right">
+                              <span className="text-sm font-mono font-medium text-zinc-400">
+                                {formatCurrency(item.precoMedio)}
+                              </span>
+                            </td>
+                            <td className="py-4 px-4 text-right">
+                              <span className="text-sm font-mono font-bold text-emerald-400">{formatCurrency(item.valor)}</span>
+                            </td>
+                          </tr>
+                          {renderExpandedRow(item.nome)}
+                        </React.Fragment>
                       ))
                     )}
                   </tbody>
@@ -347,7 +458,7 @@ export default function ComprasModule() {
             </div>
           </div>
         ) : isLevel4Active ? (
-          <div className="flex flex-col h-[500px]">
+          <div className="flex flex-col h-[600px]">
             {/* Breadcrumbs for Level 4 */}
             <div className="flex items-center text-xs font-black tracking-widest uppercase mb-4 bg-zinc-900/40 p-3.5 rounded-xl border border-zinc-800/80 w-full overflow-x-auto whitespace-nowrap">
               <button 
@@ -385,7 +496,7 @@ export default function ComprasModule() {
               </p>
               <button 
                 onClick={() => setTipoAtivo(null)}
-                className="flex items-center gap-1.5 text-xs text-cyan-400 hover:text-cyan-300 font-bold uppercase tracking-wider"
+                className="flex items-center gap-1.5 text-xs text-cyan-400 hover:text-cyan-300 font-bold uppercase tracking-wider transition-colors"
               >
                 <ArrowLeft className="w-3.5 h-3.5" />
                 Voltar para Tipos
@@ -398,26 +509,38 @@ export default function ComprasModule() {
                   <thead className="sticky top-0 bg-[#121212]/95 backdrop-blur-md z-10">
                     <tr>
                       <th className="py-4 px-4 text-[10px] font-bold text-zinc-500 uppercase tracking-widest border-b border-zinc-800">Insumo Individual</th>
-                      <th className="py-4 px-4 text-[10px] font-bold text-zinc-500 uppercase tracking-widest text-right border-b border-zinc-800">Custo Absoluto</th>
+                      <th className="py-4 px-4 text-[10px] font-bold text-zinc-500 uppercase tracking-widest text-right border-b border-zinc-800">Preço Médio</th>
+                      <th className="py-4 px-4 text-[10px] font-bold text-zinc-500 uppercase tracking-widest text-right border-b border-zinc-800">Custo Total</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-zinc-800/40">
                     {level4Items.length === 0 ? (
                       <tr>
-                        <td colSpan={2} className="py-12 text-center">
+                        <td colSpan={3} className="py-12 text-center">
                           <p className="text-zinc-500 text-sm font-medium">Nenhum insumo específico registrado sob este tipo.</p>
                         </td>
                       </tr>
                     ) : (
-                      level4Items.map((item, index) => (
-                        <tr key={item.nome} className="hover:bg-zinc-800/40 transition-colors">
-                          <td className="py-4 px-4">
-                            <span className="text-sm font-bold text-zinc-200">{item.nome}</span>
-                          </td>
-                          <td className="py-4 px-4 text-right">
-                            <span className="text-sm font-mono font-medium text-emerald-400">{formatCurrency(item.valor)}</span>
-                          </td>
-                        </tr>
+                      level4Items.map((item) => (
+                        <React.Fragment key={item.nome}>
+                          <tr 
+                            onClick={() => setItemExpandido(prev => prev === item.nome ? null : item.nome)}
+                            className="hover:bg-zinc-800/40 transition-colors cursor-pointer group"
+                          >
+                            <td className="py-4 px-4">
+                              <span className="text-sm font-bold text-zinc-200 group-hover:text-cyan-400 transition-colors">{item.nome}</span>
+                            </td>
+                            <td className="py-4 px-4 text-right">
+                              <span className="text-sm font-mono font-medium text-zinc-400">
+                                {formatCurrency(item.precoMedio)}
+                              </span>
+                            </td>
+                            <td className="py-4 px-4 text-right">
+                              <span className="text-sm font-mono font-bold text-emerald-400">{formatCurrency(item.valor)}</span>
+                            </td>
+                          </tr>
+                          {renderExpandedRow(item.nome)}
+                        </React.Fragment>
                       ))
                     )}
                   </tbody>
@@ -526,7 +649,6 @@ export default function ComprasModule() {
                           </tr>
                         )}
                         {chartData.map((item, index) => {
-                          // Nível 3 (Tipos) também é clicável agora para ir para o Nível 4
                           const isClickable = !catAtiva || (catAtiva && !subAtiva) || (catAtiva && subAtiva && !tipoAtivo);
                           return (
                             <tr 
