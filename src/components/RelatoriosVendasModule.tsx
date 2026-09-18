@@ -17,6 +17,12 @@ interface ApiVenda {
 
 const COLORS = ["#d946ef", "#0ea5e9", "#10b981", "#f59e0b", "#f43f5e", "#8b5cf6"];
 
+const mesesOrdem: Record<string, number> = {
+  "JANEIRO": 1, "FEVEREIRO": 2, "MARÇO": 3, "ABRIL": 4, 
+  "MAIO": 5, "JUNHO": 6, "JULHO": 7, "AGOSTO": 8, 
+  "SETEMBRO": 9, "OUTUBRO": 10, "NOVEMBRO": 11, "DEZEMBRO": 12
+};
+
 export default function RelatoriosVendasModule() {
   const [todasVendas, setTodasVendas] = useState<ApiVenda[]>([]);
   const [loading, setLoading] = useState(true);
@@ -38,6 +44,17 @@ export default function RelatoriosVendasModule() {
         
         if (json.sucesso && json.dados) {
           setTodasVendas(json.dados);
+          
+          // Set initial period to most recent
+          const uniquePeriods = Array.from(new Set(json.dados.map((v: any) => v.periodo))).filter(Boolean) as string[];
+          if (uniquePeriods.length > 0) {
+            const sortedPeriods = uniquePeriods.sort((a, b) => {
+              const valA = mesesOrdem[a.toUpperCase()] || 0;
+              const valB = mesesOrdem[b.toUpperCase()] || 0;
+              return valB - valA; // Descending, so [0] is the most recent
+            });
+            setSelectedPeriodo(sortedPeriods[0]);
+          }
         } else {
           throw new Error("API retornou sucesso=false ou dados vazios.");
         }
@@ -62,8 +79,14 @@ export default function RelatoriosVendasModule() {
       if (v.grupo) gr.add(v.grupo);
     });
 
+    const sortedPeriods = Array.from(p).sort((a, b) => {
+      const valA = mesesOrdem[a.toUpperCase()] || 0;
+      const valB = mesesOrdem[b.toUpperCase()] || 0;
+      return valA - valB; // Ascending order
+    });
+
     return {
-      periodos: ["Todos", ...Array.from(p).sort()],
+      periodos: ["Todos", ...sortedPeriods],
       garcons: ["Todos", ...Array.from(ga).sort()],
       grupos: ["Todos", ...Array.from(gr).sort()]
     };
