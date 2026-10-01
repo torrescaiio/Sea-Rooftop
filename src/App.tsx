@@ -17,7 +17,7 @@ import RelatoriosVendasModule from "./components/RelatoriosVendasModule";
 import ConfiguracoesModule from "./components/ConfiguracoesModule";
 import FichasTecnicasModule from "./components/FichasTecnicasModule";
 import { appAuth, appDb } from "./firebase";
-import { Clock, HelpCircle, LogOut, Sun } from "lucide-react";
+import { Clock, Sun } from "lucide-react";
 
 export default function App() {
   const [activeUser, setActiveUser] = useState<any>(null);
@@ -39,7 +39,6 @@ export default function App() {
               setActiveModule(roleDoc.allowedModules[0]);
             }
           } else {
-            // Default to ALL for existing users who don't have a role doc
             user.allowedModules = "ALL";
           }
         } catch (error) {
@@ -55,7 +54,7 @@ export default function App() {
     const updateTime = () => {
       const now = new Date();
       setSystemTime(
-        now.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit", second: "2-digit" }) + 
+        now.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" }) + 
         " • " + 
         now.toLocaleDateString("pt-BR", { weekday: "short", day: "2-digit", month: "short" })
       );
@@ -137,9 +136,9 @@ export default function App() {
   };
 
   return (
-    <div className="h-[100dvh] overflow-hidden bg-black text-slate-300 flex flex-col lg:flex-row font-sans">
+    <div className="h-[100dvh] w-full max-w-[100vw] overflow-hidden bg-black text-slate-300 flex flex-col lg:flex-row font-sans">
       
-      {/* 1. SIDEBAR NAVIGATION */}
+      {/* 1. NAVEGAÇÃO RESPONSIVA (Sidebar Desktop + Topbar & Offcanvas Mobile + Bottom Nav) */}
       <Sidebar 
         activeModule={activeModule} 
         setActiveModule={setActiveModule} 
@@ -147,36 +146,36 @@ export default function App() {
         onSignOut={handleSignOut}
       />
 
-      {/* 2. DYNAMIC WORKSPACE LAYER */}
-      <main className="flex-1 flex flex-col min-w-0 min-h-0 overflow-y-auto lg:p-3 pb-0 lg:pb-3 pl-0">
-        <div className="flex-1 flex flex-col bg-[#050505] lg:border border-slate-800 lg:rounded-2xl overflow-hidden shadow-2xl relative">
+      {/* 2. DYNAMIC WORKSPACE LAYER (Ocupa 100% da largura em mobile) */}
+      <main className="flex-1 w-full min-w-0 min-h-0 flex flex-col overflow-y-auto lg:p-3 pb-16 lg:pb-3">
+        <div className="flex-1 w-full flex flex-col bg-[#050505] lg:border border-slate-800/80 lg:rounded-2xl overflow-hidden shadow-2xl relative">
           
-          {/* Top Header Panel */}
-          <header className="px-6 py-5 pt-[max(1.25rem,env(safe-area-inset-top))] bg-transparent border-b border-white/[0.05] flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 shrink-0 relative z-0 backdrop-blur-md">
+          {/* Top Header Panel (Compacto e responsivo) */}
+          <header className="px-4 sm:px-6 py-3 sm:py-4 bg-[#050505]/90 border-b border-white/[0.05] flex items-center justify-between gap-3 shrink-0 relative z-0 backdrop-blur-md">
             <div>
               <div className="flex items-center space-x-2">
-                <Sun className="h-4 w-4 text-cyan-400 animate-spin-slow" />
-                <span className="text-[10px] font-mono text-cyan-500 uppercase tracking-widest font-bold">
+                <Sun className="h-3.5 w-3.5 text-cyan-400 animate-spin-slow" />
+                <span className="text-[9px] sm:text-[10px] font-mono text-cyan-400 uppercase tracking-widest font-bold">
                   ESTAÇÃO ATIVA • SEA ROOFTOP
                 </span>
               </div>
-              <h2 className="text-xl tracking-tight text-white mt-1">
+              <h2 className="text-sm sm:text-base font-bold tracking-tight text-white mt-0.5">
                 Olá, {activeUser.displayName || "Operador"} 
-                <span className="text-slate-500 text-sm ml-2 font-normal"> (Acesso Gerencial Autorizado)</span>
+                <span className="text-slate-500 text-xs ml-2 font-normal hidden sm:inline"> (Acesso Autorizado)</span>
               </h2>
             </div>
 
-            {/* System Date Clock and helper */}
-            <div className="flex items-center space-x-4">
-              <div className="px-4 py-2 bg-black/[0.3] rounded-full border border-white/[0.05] flex items-center space-x-2 text-xs text-slate-400 font-mono shadow-inner backdrop-blur-md">
-                <Clock className="h-3.5 w-3.5 text-slate-500" />
+            {/* System Date Clock */}
+            <div className="flex items-center space-x-3">
+              <div className="px-3 py-1.5 bg-black/40 rounded-full border border-white/[0.06] flex items-center space-x-2 text-[11px] sm:text-xs text-slate-300 font-mono shadow-inner">
+                <Clock className="h-3 w-3 text-cyan-400 shrink-0" />
                 <span>{systemTime || "Sincronizando..."}</span>
               </div>
             </div>
           </header>
 
-          {/* Workspace core */}
-          <section className="flex-1 p-6 lg:p-8 overflow-y-auto">
+          {/* Workspace core: 100% de largura e padding responsivo */}
+          <section className="flex-1 w-full p-3 sm:p-6 lg:p-8 overflow-y-auto overflow-x-hidden">
             {renderSelectedModule()}
           </section>
         </div>

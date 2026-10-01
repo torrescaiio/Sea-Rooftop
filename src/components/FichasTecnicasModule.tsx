@@ -3,7 +3,7 @@ import { appDb } from "../firebase";
 import { 
   Search, Plus, ChefHat, Trash2, FileText, Check, Coffee, CheckSquare, 
   Square, FlaskConical, User as UserIcon, Package, ChevronDown, ChevronUp, 
-  Sparkles, RefreshCw, AlertCircle, TrendingUp, DollarSign, AlertTriangle 
+  Sparkles, RefreshCw, AlertCircle, TrendingUp, DollarSign, AlertTriangle, X 
 } from "lucide-react";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
@@ -1591,21 +1591,30 @@ export default function FichasTecnicasModule() {
 
       {/* MODAL DE CRIAÇÃO / EDIÇÃO */}
       {showAddModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm">
-          <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-3xl shadow-2xl flex flex-col max-h-[92vh]">
-            <div className="p-6 border-b border-slate-800 flex justify-between items-center bg-slate-900 rounded-t-2xl shrink-0">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 bg-slate-950/80 backdrop-blur-sm overflow-hidden">
+          <div className="bg-slate-900 border border-slate-700 rounded-2xl w-[95%] sm:w-full max-w-3xl shadow-2xl flex flex-col max-h-[90vh] my-auto overflow-hidden">
+            <div className="p-4 sm:p-6 border-b border-slate-800 flex justify-between items-center bg-slate-900 rounded-t-2xl shrink-0">
               <div>
-                <h2 className="text-xl font-bold text-white uppercase tracking-wider">
+                <h2 className="text-lg sm:text-xl font-bold text-white uppercase tracking-wider">
                   {editingId ? "Editar Ficha Técnica" : "Nova Ficha Técnica"}
                 </h2>
-                <p className="text-sm text-slate-400 mt-1">
+                <p className="text-xs sm:text-sm text-slate-400 mt-0.5">
                   {editingId ? "Atualizar detalhes, preço de cardápio e insumos da receita." : "Cadastro de receita com precificação dinâmica e análise de CMV."}
                 </p>
               </div>
+              <button
+                type="button"
+                onClick={() => { setShowAddModal(false); resetForm(); }}
+                className="min-h-[44px] min-w-[44px] flex items-center justify-center p-2 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
+                title="Fechar modal"
+                aria-label="Fechar modal"
+              >
+                <X className="h-5 w-5" />
+              </button>
             </div>
             
-            <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto">
-              <div className="p-6 space-y-6">
+            <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto flex flex-col min-h-0">
+              <div className="p-4 sm:p-6 space-y-4 sm:space-y-6 flex-1">
                 {/* 2. NOVOS CAMPOS NA UI: TIPO, NOME E PREÇO DE VENDA */}
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                   <div className="space-y-1.5 md:col-span-1">
@@ -2007,17 +2016,17 @@ export default function FichasTecnicasModule() {
                 </div>
               </div>
               
-              <div className="p-6 border-t border-slate-800 flex justify-end gap-3 bg-slate-900 sticky bottom-0 z-10 shrink-0 rounded-b-2xl">
+              <div className="p-4 sm:p-6 border-t border-slate-800 flex justify-end gap-3 bg-slate-900 sticky bottom-0 z-10 shrink-0 rounded-b-2xl">
                 <button
                   type="button"
                   onClick={() => { setShowAddModal(false); resetForm(); }}
-                  className="px-4 py-2 text-sm font-medium text-slate-300 hover:text-white transition-colors"
+                  className="min-h-[44px] px-4 py-2 text-sm font-medium text-slate-300 hover:text-white transition-colors"
                 >
                   Cancelar
                 </button>
                 <button
                   type="submit"
-                  className="px-6 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-sm font-medium transition-colors shadow-lg shadow-emerald-500/20"
+                  className="min-h-[44px] px-6 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-sm font-medium transition-colors shadow-lg shadow-emerald-500/20"
                 >
                   Salvar Ficha
                 </button>
