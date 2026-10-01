@@ -3,7 +3,7 @@ import { appDb } from "../firebase";
 import { 
   Search, Plus, ChefHat, Trash2, FileText, Check, Coffee, CheckSquare, 
   Square, FlaskConical, User as UserIcon, Package, ChevronDown, ChevronUp, 
-  Sparkles, RefreshCw, AlertCircle 
+  Sparkles, RefreshCw, AlertCircle, TrendingUp, DollarSign, AlertTriangle 
 } from "lucide-react";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
@@ -53,6 +53,7 @@ export interface FichaTecnica {
   nome: string;
   categoria?: string;
   recipiente?: string;
+  precoVenda?: number; // Preço de venda no cardápio
   ingredientes: Ingrediente[];
   modoPreparo: string;
   dataCriacao?: string;
@@ -61,6 +62,87 @@ export interface FichaTecnica {
   rendimentoQtd?: number;
   rendimentoUnidade?: string;
 }
+
+export interface ResumoFinanceiro {
+  custoTotal: number;
+  precoVenda: number;
+  lucroBruto: number;
+  cmvPercentual: number | null;
+  statusMargem: 'excelente' | 'atencao' | 'perigo' | 'invalido';
+  mensagemMargem: string;
+}
+
+// 4. & 5. TRATAMENTO DE ERROS, MATEMÁTICA E REGRAS DE NEGÓCIO DE MARGEM / CMV
+export const calcularResumoFinanceiro = (
+  custoTotal: number, 
+  precoVendaRaw: number | string | undefined
+): ResumoFinanceiro => {
+  const precoVenda = typeof precoVendaRaw === 'string'
+    ? parseFloat(precoVendaRaw.replace(',', '.')) || 0
+    : precoVendaRaw || 0;
+
+  const lucroBruto = precoVenda - custoTotal;
+
+  // Se o preço de venda não foi informado ou é zero (evita divisão por zero)
+  if (!precoVenda || precoVenda <= 0) {
+    return {
+      custoTotal,
+      precoVenda: 0,
+      lucroBruto: 0,
+      cmvPercentual: null,
+      statusMargem: 'invalido',
+      mensagemMargem: 'Defina o preço de venda'
+    };
+  }
+
+  // Se o preço de venda é menor que o custo (prejuízo direto)
+  if (precoVenda < custoTotal) {
+    const cmv = (custoTotal / precoVenda) * 100;
+    return {
+      custoTotal,
+      precoVenda,
+      lucroBruto,
+      cmvPercentual: cmv,
+      statusMargem: 'perigo',
+      mensagemMargem: 'Perigo: Prejuízo (Venda < Custo)'
+    };
+  }
+
+  const cmv = (custoTotal / precoVenda) * 100;
+
+  // Regras de negócio de CMV:
+  // - CMV até 28%: Verde (Margem Excelente)
+  // - CMV entre 28.01% e 34%: Amarelo (Atenção - Margem Apertada)
+  // - CMV acima de 34%: Vermelho (Perigo - Prejuízo/Margem Ruim)
+  if (cmv <= 28) {
+    return {
+      custoTotal,
+      precoVenda,
+      lucroBruto,
+      cmvPercentual: cmv,
+      statusMargem: 'excelente',
+      mensagemMargem: 'Margem Excelente (CMV ≤ 28%)'
+    };
+  } else if (cmv <= 34) {
+    return {
+      custoTotal,
+      precoVenda,
+      lucroBruto,
+      cmvPercentual: cmv,
+      statusMargem: 'atencao',
+      mensagemMargem: 'Atenção - Margem Apertada (28% a 34%)'
+    };
+  } else {
+    return {
+      custoTotal,
+      precoVenda,
+      lucroBruto,
+      cmvPercentual: cmv,
+      statusMargem: 'perigo',
+      mensagemMargem: 'Perigo - Margem Ruim (CMV > 34%)'
+    };
+  }
+};
 
 const API_URL = "https://script.google.com/macros/s/AKfycbzZjwaEDHoyuIuBZ3omHGDmPxD3HA82b8In6ocV3Yp0s-6lzqeXjTs5EDUJ4HQmhx6k/exec";
 
@@ -375,10 +457,11 @@ export default function FichasTecnicasModule() {
   const [showAddModal, setShowAddModal] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
 
-  // Form states
+  // 1. ATUALIZAÇÃO DE STATE: Form states com precoVenda
   const [tipo, setTipo] = useState<"bebida" | "comida" | "insumo">("bebida");
   const [nome, setNome] = useState("");
   const [categoria, setCategoria] = useState("");
+  const [precoVenda, setPrecoVenda] = useState<string>(""); // Novo estado para preço de venda
   const [showAddCategoria, setShowAddCategoria] = useState(false);
   const [novaCategoriaNome, setNovaCategoriaNome] = useState("");
   const [recipiente, setRecipiente] = useState("");
@@ -392,7 +475,7 @@ export default function FichasTecnicasModule() {
   const [rendimentoQtd, setRendimentoQtd] = useState<string>("1");
   const [rendimentoUnidade, setRendimentoUnidade] = useState<string>("l");
 
-  // 1. INGESTÃO: Fetch catalogoInsumos com tratamento tolerante de erro do Google Apps Script
+  // Ingestão com tolerância a erros no script da planilha
   const fetchCatalogo = async () => {
     try {
       setLoadingCatalogo(true);
@@ -400,10 +483,9 @@ export default function FichasTecnicasModule() {
       const response = await fetch(API_URL);
       const text = await response.text();
 
-      // Detecta se o Google Apps Script retornou página de erro HTML
       if (text.includes("ReferenceError") || text.includes("<!DOCTYPE html>")) {
         const errorMatch = text.match(/ReferenceError:[^<]+/);
-        const msg = errorMatch ? errorMatch[0].replace(/&quot;/g, '"') : "Erro de execução na linha 148 do script Google Apps Script";
+        const msg = errorMatch ? errorMatch[0].replace(/&quot;/g, '"') : "Erro de execução no Google Apps Script";
         console.warn("Aviso na API Google Apps Script:", msg);
         setApiError(msg);
         return;
@@ -430,6 +512,7 @@ export default function FichasTecnicasModule() {
     setTipo("bebida");
     setNome("");
     setCategoria("");
+    setPrecoVenda("");
     setRecipiente("");
     setIngredientes([
       { nome: "", quantidade: "", isCadastrado: false, origem: 'catalogo', custoCompra: "", unidadeCompra: "" }
@@ -444,11 +527,13 @@ export default function FichasTecnicasModule() {
     setShowAddModal(true);
   };
 
+  // 6. RETROCOMPATIBILIDADE: Se precoVenda for nulo/indefinido em fichas antigas, assume ""
   const handleEdit = (ficha: FichaTecnica) => {
     setEditingId(ficha.id!);
     setTipo(ficha.tipo);
     setNome(ficha.nome);
     setCategoria(ficha.categoria || "");
+    setPrecoVenda(ficha.precoVenda !== undefined && ficha.precoVenda !== null && ficha.precoVenda > 0 ? ficha.precoVenda.toString() : "");
     setRecipiente(ficha.recipiente || "");
     setIngredientes(ficha.ingredientes.map(i => {
       const catMatch = findCatalogoItem(i.nome, catalogoInsumos);
@@ -520,7 +605,7 @@ export default function FichasTecnicasModule() {
     }
   };
 
-  // 4. RETROCOMPATIBILIDADE E CÁLCULO DINÂMICO
+  // Cálculo individual de custo por ingrediente
   const calcularCustoIngredienteInfo = (
     ing: Ingrediente, 
     visited = new Set<string>()
@@ -554,7 +639,7 @@ export default function FichasTecnicasModule() {
       };
     }
 
-    // 2. PRECIFICAÇÃO DINÂMICA (Google Sheets API)
+    // 2. Preço dinâmico da planilha Google Sheets
     const catMatch = findCatalogoItem(ing.nome, catalogoInsumos);
     if (catMatch && typeof catMatch.custo === 'number' && catMatch.custo > 0) {
       const baseUnit = (catMatch.um || 'un').toLowerCase().trim();
@@ -569,8 +654,7 @@ export default function FichasTecnicasModule() {
       };
     }
 
-    // 3. RETROCOMPATIBILIDADE: INGREDIENTE LEGADO (SEM MATCH NA PLANILHA)
-    // 3a. Busca na coleção de matérias-primas
+    // 3. Matérias-Primas cadastradas
     const mat = materiasPrimas.find(m => normalizeText(m.nome) === normalizeText(ing.nome));
     if (mat && mat.custo > 0) {
       const baseUnit = (mat.unidade || 'un').toLowerCase();
@@ -584,7 +668,7 @@ export default function FichasTecnicasModule() {
       };
     }
 
-    // 3b. Custo unitário salvo no próprio ingrediente
+    // 4. Custo unitário manual salvo no próprio ingrediente
     if (ing.custoCompra && parseFloat(ing.custoCompra) > 0) {
       const baseCost = parseFloat(ing.custoCompra);
       const baseUnit = (ing.unidadeCompra || 'un').toLowerCase();
@@ -598,7 +682,7 @@ export default function FichasTecnicasModule() {
       };
     }
 
-    // 3c. Snapshot estático salvo anteriormente no Firebase
+    // 5. Snapshot salvo anteriormente no Firebase
     if (typeof ing.custoCalculado === 'number' && ing.custoCalculado > 0) {
       return {
         custo: ing.custoCalculado,
@@ -607,7 +691,7 @@ export default function FichasTecnicasModule() {
       };
     }
 
-    // 3d. Custo legado direto
+    // 6. Custo legado direto
     if (typeof (ing as any).custo === 'number' && (ing as any).custo > 0) {
       return {
         custo: (ing as any).custo,
@@ -637,12 +721,11 @@ export default function FichasTecnicasModule() {
     return custoTotal;
   };
 
-  // SUGESTÕES UNIFICADAS: Agrupa Planilha + Insumos da Pasta + Matérias-Primas
+  // Sugestões unificadas
   const todasSugestoes = useMemo<AutocompleteItem[]>(() => {
     const lista: AutocompleteItem[] = [];
     const nomesAdicionados = new Set<string>();
 
-    // 1. Insumos / Preparos cadastrados na pasta (fichas tipo 'insumo')
     fichas.filter(f => f.tipo === 'insumo').forEach(subFicha => {
       const norm = normalizeText(subFicha.nome);
       const subCustoTotal = calcularCustoFicha(subFicha);
@@ -659,7 +742,6 @@ export default function FichasTecnicasModule() {
       nomesAdicionados.add(norm);
     });
 
-    // 2. Catálogo Google Sheets API
     catalogoInsumos.forEach(item => {
       const norm = normalizeText(item.nome);
       if (!nomesAdicionados.has(norm)) {
@@ -674,7 +756,6 @@ export default function FichasTecnicasModule() {
       }
     });
 
-    // 3. Matérias-Primas cadastradas
     materiasPrimas.forEach(mat => {
       const norm = normalizeText(mat.nome);
       if (!nomesAdicionados.has(norm)) {
@@ -693,7 +774,6 @@ export default function FichasTecnicasModule() {
     return lista;
   }, [catalogoInsumos, fichas, materiasPrimas]);
 
-  // 2. UI DE SELEÇÃO: Adicionar novo ingrediente com sugestões
   const handleAddIngrediente = (origem: 'catalogo' | 'insumo' | 'manual' = 'catalogo') => {
     setIngredientes([
       ...ingredientes, 
@@ -708,7 +788,6 @@ export default function FichasTecnicasModule() {
     ]);
   };
 
-  // 3. AUTO-PREENCHIMENTO: Preenche unidade e custo automaticamente ao selecionar sugestão
   const handleSelectSuggestion = (index: number, item: AutocompleteItem) => {
     const newIngredientes = [...ingredientes];
     newIngredientes[index] = {
@@ -726,7 +805,6 @@ export default function FichasTecnicasModule() {
     const newIngredientes = [...ingredientes];
     newIngredientes[index][field] = value;
     
-    // Se o usuário digitou um nome que casa com alguma sugestão, auto-preenche
     if (field === 'nome') {
       const match = todasSugestoes.find(s => normalizeText(s.nome) === normalizeText(value));
       if (match) {
@@ -746,7 +824,7 @@ export default function FichasTecnicasModule() {
     setIngredientes(newIngredientes);
   };
 
-  // 5. SALVAMENTO: Salva array completo com snapshot do custoCalculado no Firebase
+  // 6. SALVAMENTO: Salva array completo e precoVenda no Firebase
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!nome.trim() || ingredientes.some(i => !i.nome.trim() || !i.quantidade.trim()) || !modoPreparo.trim()) {
@@ -768,11 +846,14 @@ export default function FichasTecnicasModule() {
         };
       });
 
+      const precoVendaNumber = parseFloat(precoVenda.replace(',', '.')) || 0;
+
       const novaFicha: any = {
         tipo,
         nome: nome.trim(),
         categoria,
         recipiente,
+        precoVenda: precoVendaNumber,
         ingredientes: ingredientesParaSalvar,
         modoPreparo,
         dataCriacao: new Date().toISOString()
@@ -793,35 +874,6 @@ export default function FichasTecnicasModule() {
         await appDb.add("fichas_tecnicas", novaFicha);
       }
       
-      // Mantém a retrocompatibilidade também com a aba Matérias-Primas
-      for (const ing of ingredientes) {
-        if (ing.origem === 'insumo' || ing.isCadastrado) continue;
-        const nameClean = ing.nome.trim();
-        if (!nameClean) continue;
-        
-        const existing = materiasPrimas.find(m => m.nome.toLowerCase() === nameClean.toLowerCase());
-        const unitMatch = ing.quantidade.match(/^([\d.,]+)\s*([a-zA-Z]+)$/);
-        const defaultUnit = unitMatch ? unitMatch[2].toLowerCase() : 'un';
-        
-        const custoToSave = ing.custoCompra ? parseFloat(ing.custoCompra) : (existing?.custo || 0);
-        const unidadeToSave = ing.unidadeCompra || existing?.unidade || defaultUnit;
-
-        if (!existing && ing.origem !== 'materia_prima') {
-           await appDb.add("materias_primas", {
-              nome: nameClean,
-              custo: custoToSave,
-              unidade: unidadeToSave
-           });
-        } else if (existing) {
-           if (ing.custoCompra && ing.unidadeCompra && (custoToSave !== existing.custo || unidadeToSave !== existing.unidade)) {
-              await appDb.update("materias_primas", existing.id!, {
-                 custo: custoToSave,
-                 unidade: unidadeToSave
-              });
-           }
-        }
-      }
-
       setShowAddModal(false);
       resetForm();
     } catch (error) {
@@ -859,13 +911,13 @@ export default function FichasTecnicasModule() {
 
       doc.setFontSize(22);
       doc.setTextColor(0);
-      doc.text("Ficha Técnica de Produção", 14, 22);
+      doc.text("Ficha Técnica & Análise Financeira", 14, 22);
 
       doc.setFontSize(16);
       doc.setTextColor(50);
       doc.text(ficha.nome, 14, 32);
 
-      doc.setFontSize(11);
+      doc.setFontSize(10);
       doc.setTextColor(100);
       let yPos = 40;
       doc.text(`Tipo: ${ficha.tipo === 'bebida' ? 'Bebida/Bar' : ficha.tipo === 'comida' ? 'Comida/Cozinha' : 'Insumo/Preparo'}`, 14, yPos);
@@ -875,15 +927,23 @@ export default function FichasTecnicasModule() {
       yPos += 6;
       
       if (ficha.recipiente) {
-        doc.text(`Armazenamento/Recipiente: ${ficha.recipiente}`, 14, yPos);
-        yPos += 6;
+        doc.text(`Recipiente: ${ficha.recipiente}`, 14, yPos);
       }
-      doc.text(`Data de Criação: ${ficha.dataCriacao ? new Date(ficha.dataCriacao).toLocaleDateString('pt-BR') : '-'}`, 14, yPos);
-      
-      yPos += 14;
-      doc.setFontSize(14);
+      doc.text(`Data: ${ficha.dataCriacao ? new Date(ficha.dataCriacao).toLocaleDateString('pt-BR') : '-'}`, 100, yPos);
+      yPos += 7;
+
+      // Resumo Financeiro no PDF
+      const custoTotalFicha = calcularCustoFicha(ficha);
+      const fin = calcularResumoFinanceiro(custoTotalFicha, ficha.precoVenda);
+      doc.setFontSize(10);
+      doc.setTextColor(40);
+      const resumoPdf = `Custo Total: R$ ${fin.custoTotal.toFixed(2)} | Preço de Venda: ${fin.precoVenda > 0 ? 'R$ ' + fin.precoVenda.toFixed(2) : 'Não informado'} | Lucro: ${fin.precoVenda > 0 ? 'R$ ' + fin.lucroBruto.toFixed(2) : '-'} | CMV: ${fin.cmvPercentual ? fin.cmvPercentual.toFixed(1) + '%' : '-'}`;
+      doc.text(resumoPdf, 14, yPos);
+      yPos += 8;
+
+      doc.setFontSize(13);
       doc.setTextColor(0);
-      doc.text("Ingredientes", 14, yPos);
+      doc.text("Ingredientes & Insumos", 14, yPos);
 
       const tableData = ficha.ingredientes.map(i => {
         const c = calcularCustoIngrediente(i);
@@ -893,21 +953,21 @@ export default function FichasTecnicasModule() {
       autoTable(doc, {
         head: [['Ingrediente / Insumo', 'Quantidade', 'Custo Estimado']],
         body: tableData,
-        startY: yPos + 5,
+        startY: yPos + 4,
         theme: 'grid',
-        headStyles: { fillColor: [40, 40, 40] }
+        headStyles: { fillColor: [30, 41, 59] }
       });
 
-      const finalY = (doc as any).lastAutoTable ? (doc as any).lastAutoTable.finalY : 65;
+      const finalY = (doc as any).lastAutoTable ? (doc as any).lastAutoTable.finalY : 70;
 
-      doc.setFontSize(14);
+      doc.setFontSize(13);
       doc.setTextColor(0);
-      doc.text("Modo de Preparo", 14, finalY + 15);
+      doc.text("Modo de Preparo", 14, finalY + 12);
 
-      doc.setFontSize(11);
+      doc.setFontSize(10);
       doc.setTextColor(50);
       const splitText = doc.splitTextToSize(ficha.modoPreparo, 180);
-      doc.text(splitText, 14, finalY + 22);
+      doc.text(splitText, 14, finalY + 18);
     });
 
     doc.save(`Fichas_Tecnicas_${new Date().getTime()}.pdf`);
@@ -934,6 +994,19 @@ export default function FichasTecnicasModule() {
     }
   };
 
+  // Cálculo financeiro em tempo real para o modal aberto
+  const custoTotalAtualModal = useMemo(() => {
+    return ingredientes.reduce((acc, ing) => acc + calcularCustoIngrediente(ing), 0);
+  }, [ingredientes, catalogoInsumos, fichas, materiasPrimas]);
+
+  const custoBaseModal = tipo === 'insumo' && parseFloat(rendimentoQtd) > 0
+    ? custoTotalAtualModal / parseFloat(rendimentoQtd)
+    : custoTotalAtualModal;
+
+  const resumoModal = useMemo(() => {
+    return calcularResumoFinanceiro(custoBaseModal, precoVenda);
+  }, [custoBaseModal, precoVenda]);
+
   if (loading) {
     return (
       <div className="p-8 flex justify-center items-center h-full">
@@ -949,10 +1022,10 @@ export default function FichasTecnicasModule() {
         <div>
           <h1 className="text-2xl sm:text-3xl font-bold text-white tracking-tight flex items-center gap-3">
             <ChefHat className="h-8 w-8 text-emerald-500" />
-            Fichas Técnicas
+            Fichas Técnicas & Centro Financeiro
           </h1>
           <p className="text-slate-400 mt-1 text-sm">
-            Gerador de fichas de produção e precificação inteligente de insumos.
+            Gestão de receitas, custos de insumos, preço de cardápio e controle rigoroso de CMV / Margem.
           </p>
           
           {/* Status da Ingestão da Planilha */}
@@ -972,7 +1045,7 @@ export default function FichasTecnicasModule() {
             )}
             <button
               onClick={fetchCatalogo}
-              className="text-xs text-slate-400 hover:text-slate-200 underline flex items-center gap-1"
+              className="text-xs text-slate-400 hover:text-slate-200 underline flex items-center gap-1 transition-colors"
               title="Recarregar catálogo da planilha"
             >
               <RefreshCw className="h-3 w-3" /> Atualizar
@@ -999,7 +1072,7 @@ export default function FichasTecnicasModule() {
         </div>
       </div>
 
-      {/* AVISO DO GOOGLE APPS SCRIPT (CASO O SCRIPT DA PLANILHA ESTEJA COM ERRO) */}
+      {/* AVISO DO GOOGLE APPS SCRIPT (SE HOUVER) */}
       {apiError && (
         <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl p-4 text-xs text-amber-300 flex items-start gap-3">
           <AlertCircle className="h-5 w-5 text-amber-400 shrink-0 mt-0.5" />
@@ -1011,7 +1084,7 @@ export default function FichasTecnicasModule() {
               {apiError}
             </p>
             <p className="text-slate-400 text-xs">
-              O script da sua planilha no Google retornou um erro interno (linha 148 do arquivo Código.gs). O sistema continuará puxando e calculando normalmente todos os insumos já criados na sua pasta de insumos e matérias-primas cadastradas.
+              O sistema continua funcionando perfeitamente utilizando os insumos da sua pasta e valores cadastrados.
             </p>
           </div>
         </div>
@@ -1098,21 +1171,22 @@ export default function FichasTecnicasModule() {
               <div className="text-center py-12">
                 <ChefHat className="h-12 w-12 text-slate-700 mx-auto mb-4" />
                 <h3 className="text-lg font-medium text-slate-300">Nenhuma ficha encontrada</h3>
-                <p className="text-slate-500 mt-1">Crie sua primeira ficha técnica com precificação integrada.</p>
+                <p className="text-slate-500 mt-1">Crie sua primeira ficha técnica com precificação e controle de margem.</p>
               </div>
             ) : (
-              <div className="flex flex-col gap-2">
+              <div className="flex flex-col gap-3">
                 {filteredFichas.map(ficha => {
                   const isSelected = selectedIds.includes(ficha.id!);
                   const isExpanded = expandedId === ficha.id;
                   
                   // Cálculo do custo total da ficha
-                  let custoExibicao = calcularCustoFicha(ficha);
-                  if (ficha.tipo === 'insumo' && ficha.rendimentoQtd) {
-                    custoExibicao = custoExibicao / ficha.rendimentoQtd;
-                  }
+                  const custoTotalFicha = calcularCustoFicha(ficha);
+                  const custoExibicao = (ficha.tipo === 'insumo' && ficha.rendimentoQtd) 
+                    ? custoTotalFicha / ficha.rendimentoQtd 
+                    : custoTotalFicha;
 
                   const hasDynamic = ficha.ingredientes.some(i => calcularCustoIngredienteInfo(i).isDynamic);
+                  const fin = calcularResumoFinanceiro(custoExibicao, ficha.precoVenda);
                   
                   return (
                     <div 
@@ -1136,9 +1210,10 @@ export default function FichasTecnicasModule() {
                             {isSelected ? <CheckSquare className="h-5 w-5" /> : <Square className="h-5 w-5" />}
                           </button>
                           
-                          <div className="flex-1 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                          <div className="flex-1 flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+                            {/* Nome e Categoria */}
                             <div className="flex items-center gap-3">
-                              <span className={`flex items-center justify-center h-8 w-8 rounded-full ${
+                              <span className={`flex items-center justify-center h-9 w-9 rounded-full shrink-0 ${
                                 ficha.tipo === 'bebida' ? 'bg-indigo-500/20 text-indigo-400' :
                                 ficha.tipo === 'comida' ? 'bg-orange-500/20 text-orange-400' :
                                 'bg-pink-500/20 text-pink-400'
@@ -1149,61 +1224,196 @@ export default function FichasTecnicasModule() {
                               </span>
                               <div>
                                 <h3 className="font-bold text-white text-base leading-tight">{ficha.nome}</h3>
-                                <div className="flex gap-2 mt-0.5">
+                                <div className="flex items-center gap-2 mt-0.5">
                                   {ficha.categoria && (
-                                    <span className="text-[10px] uppercase font-bold tracking-wider text-slate-500">
+                                    <span className="text-[10px] uppercase font-bold tracking-wider text-slate-400 bg-slate-900 px-2 py-0.5 rounded border border-slate-800">
                                       {ficha.categoria}
+                                    </span>
+                                  )}
+                                  {hasDynamic && (
+                                    <span className="inline-flex items-center gap-1 text-[10px] text-emerald-400 font-medium">
+                                      <Sparkles className="h-2.5 w-2.5" /> Planilha
                                     </span>
                                   )}
                                 </div>
                               </div>
                             </div>
                             
-                            <div className="flex items-center gap-4 pl-12 sm:pl-0">
-                              {custoExibicao > 0 && (
+                            {/* CENTRO FINANCEIRO NO CARD PRINCIPAL */}
+                            <div className="flex items-center flex-wrap gap-2.5 pl-12 lg:pl-0">
+                              {/* Custo Total */}
+                              <span 
+                                className="inline-flex items-center gap-1 text-xs font-mono font-medium px-2.5 py-1 rounded-lg bg-slate-900 text-slate-300 border border-slate-800"
+                                title="Custo total dos insumos da receita"
+                              >
+                                <span className="text-slate-500 text-[10px] uppercase font-bold">Custo:</span>
+                                R$ {custoExibicao.toFixed(2)}
+                                {ficha.tipo === 'insumo' && ficha.rendimentoUnidade ? `/${ficha.rendimentoUnidade}` : ''}
+                              </span>
+
+                              {/* Preço de Venda */}
+                              {fin.precoVenda > 0 ? (
                                 <span 
-                                  className="inline-flex items-center gap-1.5 text-xs font-mono font-bold tracking-wider px-2.5 py-1 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20"
-                                  title={hasDynamic ? "Custo calculado com dados em tempo real da planilha" : "Custo calculado com base nos insumos"}
+                                  className="inline-flex items-center gap-1 text-xs font-mono font-bold px-2.5 py-1 rounded-lg bg-slate-900 text-white border border-slate-700"
+                                  title="Preço praticado no cardápio"
                                 >
-                                  {hasDynamic && <Sparkles className="h-3 w-3 text-emerald-400" />}
-                                  R$ {custoExibicao.toFixed(2)}
-                                  {ficha.tipo === 'insumo' && ficha.rendimentoUnidade ? ` / ${ficha.rendimentoUnidade}` : ''}
+                                  <span className="text-slate-400 text-[10px] uppercase">Venda:</span>
+                                  R$ {fin.precoVenda.toFixed(2)}
+                                </span>
+                              ) : (
+                                <span className="text-[11px] text-slate-500 bg-slate-900/60 px-2 py-1 rounded border border-slate-800/80">
+                                  Sem preço de venda
                                 </span>
                               )}
+
+                              {/* Lucro Bruto */}
+                              {fin.precoVenda > 0 && (
+                                <span 
+                                  className={`inline-flex items-center gap-1 text-xs font-mono font-medium px-2.5 py-1 rounded-lg border ${
+                                    fin.lucroBruto > 0 
+                                      ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' 
+                                      : 'bg-rose-500/10 text-rose-400 border-rose-500/20'
+                                  }`}
+                                  title="Lucro Bruto (Preço de Venda - Custo)"
+                                >
+                                  <span className="text-[10px] uppercase opacity-75">Lucro:</span>
+                                  R$ {fin.lucroBruto.toFixed(2)}
+                                </span>
+                              )}
+
+                              {/* 5. ALERTA VISUAL DE MARGEM / CMV */}
+                              {fin.precoVenda > 0 ? (
+                                <span 
+                                  className={`inline-flex items-center gap-1 text-xs font-mono font-bold px-2.5 py-1 rounded-full border ${
+                                    fin.statusMargem === 'excelente'
+                                      ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/40 shadow-[0_0_8px_rgba(16,185,129,0.15)]'
+                                      : fin.statusMargem === 'atencao'
+                                      ? 'bg-amber-500/15 text-amber-400 border-amber-500/40 shadow-[0_0_8px_rgba(245,158,11,0.15)]'
+                                      : 'bg-rose-500/15 text-rose-400 border-rose-500/40 shadow-[0_0_8px_rgba(244,63,94,0.15)]'
+                                  }`}
+                                  title={fin.mensagemMargem}
+                                >
+                                  {fin.statusMargem === 'perigo' && <AlertTriangle className="h-3 w-3 text-rose-400" />}
+                                  CMV {fin.cmvPercentual !== null ? `${fin.cmvPercentual.toFixed(1)}%` : '---'}
+                                </span>
+                              ) : null}
                               
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  handleEdit(ficha);
-                                }}
-                                className="p-1.5 text-slate-500 hover:text-emerald-400 hover:bg-emerald-500/10 rounded transition-colors hidden sm:block"
-                                title="Editar Ficha"
-                              >
-                                <FileText className="h-4 w-4" />
-                              </button>
-                              
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  handleDelete(ficha.id!);
-                                }}
-                                className="p-1.5 text-slate-500 hover:text-rose-400 hover:bg-rose-500/10 rounded transition-colors hidden sm:block"
-                                title="Excluir Ficha"
-                              >
-                                <Trash2 className="h-4 w-4" />
-                              </button>
-                              
-                              <div className="text-slate-400">
-                                {isExpanded ? <ChevronUp className="h-5 w-5" /> : <ChevronDown className="h-5 w-5" />}
+                              {/* Botões de Ação */}
+                              <div className="flex items-center gap-1">
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleEdit(ficha);
+                                  }}
+                                  className="p-1.5 text-slate-400 hover:text-emerald-400 hover:bg-emerald-500/10 rounded transition-colors hidden sm:block"
+                                  title="Editar Ficha"
+                                >
+                                  <FileText className="h-4 w-4" />
+                                </button>
+                                
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleDelete(ficha.id!);
+                                  }}
+                                  className="p-1.5 text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 rounded transition-colors hidden sm:block"
+                                  title="Excluir Ficha"
+                                >
+                                  <Trash2 className="h-4 w-4" />
+                                </button>
+                                
+                                <div className="text-slate-400 ml-1">
+                                  {isExpanded ? <ChevronUp className="h-5 w-5" /> : <ChevronDown className="h-5 w-5" />}
+                                </div>
                               </div>
                             </div>
                           </div>
                         </div>
                       </div>
                       
-                      {/* CARD EXPANDIDO: DETALHES DE INGREDIENTES */}
+                      {/* CARD EXPANDIDO: DASHBOARD FINANCEIRO + INGREDIENTES */}
                       {isExpanded && (
-                        <div className="p-5 bg-slate-900/30 border-t border-slate-800/50">
+                        <div className="p-5 bg-slate-900/30 border-t border-slate-800/50 space-y-5">
+                          {/* 3. PAINEL DE RESUMO FINANCEIRO (DASHBOARD DA FICHA NO CARD) */}
+                          <div className="bg-slate-950/70 border border-slate-800/80 rounded-xl p-4">
+                            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-3 border-b border-slate-800/80 pb-2">
+                              <div className="flex items-center gap-2">
+                                <TrendingUp className="h-4 w-4 text-emerald-400" />
+                                <span className="text-xs font-bold text-white uppercase tracking-wider">
+                                  Diagnóstico Financeiro do Item
+                                </span>
+                              </div>
+                              <span className={`text-[11px] font-semibold px-2.5 py-0.5 rounded-full border inline-flex items-center gap-1.5 w-fit ${
+                                fin.statusMargem === 'excelente' 
+                                  ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30'
+                                  : fin.statusMargem === 'atencao'
+                                  ? 'bg-amber-500/10 text-amber-400 border-amber-500/30'
+                                  : fin.statusMargem === 'perigo'
+                                  ? 'bg-rose-500/10 text-rose-400 border-rose-500/30'
+                                  : 'bg-slate-800 text-slate-400 border-slate-700'
+                              }`}>
+                                {fin.statusMargem === 'perigo' && <AlertTriangle className="h-3 w-3" />}
+                                {fin.mensagemMargem}
+                              </span>
+                            </div>
+
+                            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-center">
+                              {/* Pilar 1: Custo Total */}
+                              <div className="bg-slate-900/80 border border-slate-800/80 rounded-lg p-3">
+                                <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider block">Custo Total</span>
+                                <span className="text-base font-bold font-mono text-slate-200 mt-0.5 block">
+                                  R$ {fin.custoTotal.toFixed(2)}
+                                </span>
+                                <span className="text-[10px] text-slate-500">Soma dos insumos</span>
+                              </div>
+
+                              {/* Pilar 2: Preço de Venda */}
+                              <div className="bg-slate-900/80 border border-slate-800/80 rounded-lg p-3">
+                                <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider block">Preço de Venda</span>
+                                <span className="text-base font-bold font-mono text-white mt-0.5 block">
+                                  {fin.precoVenda > 0 ? `R$ ${fin.precoVenda.toFixed(2)}` : 'R$ 0,00'}
+                                </span>
+                                <span className="text-[10px] text-slate-500">Cardápio</span>
+                              </div>
+
+                              {/* Pilar 3: Lucro Bruto */}
+                              <div className="bg-slate-900/80 border border-slate-800/80 rounded-lg p-3">
+                                <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider block">Lucro Bruto</span>
+                                <span className={`text-base font-bold font-mono mt-0.5 block ${
+                                  fin.lucroBruto > 0 ? 'text-emerald-400' : fin.lucroBruto < 0 ? 'text-rose-400' : 'text-slate-400'
+                                }`}>
+                                  {fin.precoVenda > 0 ? `R$ ${fin.lucroBruto.toFixed(2)}` : '---'}
+                                </span>
+                                <span className="text-[10px] text-slate-500">Venda - Custo</span>
+                              </div>
+
+                              {/* Pilar 4: CMV % */}
+                              <div className={`border rounded-lg p-3 ${
+                                fin.statusMargem === 'excelente' 
+                                  ? 'bg-emerald-500/10 border-emerald-500/30'
+                                  : fin.statusMargem === 'atencao'
+                                  ? 'bg-amber-500/10 border-amber-500/30'
+                                  : fin.statusMargem === 'perigo'
+                                  ? 'bg-rose-500/10 border-rose-500/30'
+                                  : 'bg-slate-900/80 border-slate-800/80'
+                              }`}>
+                                <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider block">CMV (%)</span>
+                                <span className={`text-base font-bold font-mono mt-0.5 block ${
+                                  fin.statusMargem === 'excelente'
+                                    ? 'text-emerald-400'
+                                    : fin.statusMargem === 'atencao'
+                                    ? 'text-amber-400'
+                                    : fin.statusMargem === 'perigo'
+                                    ? 'text-rose-400'
+                                    : 'text-slate-400'
+                                }`}>
+                                  {fin.cmvPercentual !== null ? `${fin.cmvPercentual.toFixed(1)}%` : '---'}
+                                </span>
+                                <span className="text-[10px] text-slate-500">Meta: ≤ 28%</span>
+                              </div>
+                            </div>
+                          </div>
+
                           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                             <div>
                               <div className="flex items-center justify-between mb-3">
@@ -1382,22 +1592,23 @@ export default function FichasTecnicasModule() {
       {/* MODAL DE CRIAÇÃO / EDIÇÃO */}
       {showAddModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm">
-          <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-2xl shadow-2xl flex flex-col max-h-[90vh]">
+          <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-3xl shadow-2xl flex flex-col max-h-[92vh]">
             <div className="p-6 border-b border-slate-800 flex justify-between items-center bg-slate-900 rounded-t-2xl shrink-0">
               <div>
                 <h2 className="text-xl font-bold text-white uppercase tracking-wider">
                   {editingId ? "Editar Ficha Técnica" : "Nova Ficha Técnica"}
                 </h2>
                 <p className="text-sm text-slate-400 mt-1">
-                  {editingId ? "Atualizar detalhes da ficha e seus insumos." : "Cadastro de receita com precificação dinâmica da planilha e pasta."}
+                  {editingId ? "Atualizar detalhes, preço de cardápio e insumos da receita." : "Cadastro de receita com precificação dinâmica e análise de CMV."}
                 </p>
               </div>
             </div>
             
             <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto">
               <div className="p-6 space-y-6">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div className="space-y-1.5">
+                {/* 2. NOVOS CAMPOS NA UI: TIPO, NOME E PREÇO DE VENDA */}
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div className="space-y-1.5 md:col-span-1">
                     <label className="text-sm font-medium text-slate-300">Tipo</label>
                     <div className="flex bg-slate-950 p-1 rounded-lg border border-slate-800">
                       <button
@@ -1429,18 +1640,39 @@ export default function FichasTecnicasModule() {
                       </button>
                     </div>
                   </div>
-                  <div className="space-y-1.5">
+
+                  <div className="space-y-1.5 md:col-span-1">
                     <label className="text-sm font-medium text-slate-300">Nome do Produto</label>
                     <input
                       type="text"
                       required
                       value={nome}
                       onChange={(e) => setNome(e.target.value)}
-                      placeholder={tipo === 'insumo' ? "Ex: Xarope de Gengibre, Molho Ranch..." : "Ex: Negroni, Hambúrguer Clássico..."}
-                      className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 transition-colors"
+                      placeholder={tipo === 'insumo' ? "Ex: Xarope de Gengibre..." : "Ex: Negroni, Hambúrguer..."}
+                      className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 transition-colors text-sm"
                     />
                   </div>
-                  
+
+                  {/* Campo Preço de Venda */}
+                  <div className="space-y-1.5 md:col-span-1">
+                    <label className="text-sm font-medium text-slate-300 flex items-center justify-between">
+                      <span>Preço de Venda</span>
+                      <span className="text-[10px] text-emerald-400 font-normal">Cardápio</span>
+                    </label>
+                    <div className="relative">
+                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm font-mono">R$</span>
+                      <input
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        placeholder="0.00"
+                        value={precoVenda}
+                        onChange={(e) => setPrecoVenda(e.target.value)}
+                        className="w-full bg-slate-800 border border-slate-700 rounded-lg pl-9 pr-3 py-2 text-white font-mono focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 transition-colors text-sm"
+                      />
+                    </div>
+                  </div>
+
                   <div className="space-y-1.5 md:col-span-2">
                     <label className="text-sm font-medium text-slate-300">Categoria <span className="text-slate-500 font-normal">(Opcional)</span></label>
                     {showAddCategoria ? (
@@ -1495,19 +1727,19 @@ export default function FichasTecnicasModule() {
                     )}
                   </div>
                   
-                  <div className="space-y-1.5 md:col-span-2">
-                    <label className="text-sm font-medium text-slate-300">Recipiente / Armazenamento <span className="text-slate-500 font-normal">(Opcional)</span></label>
+                  <div className="space-y-1.5 md:col-span-1">
+                    <label className="text-sm font-medium text-slate-300">Recipiente <span className="text-slate-500 font-normal">(Opcional)</span></label>
                     <input
                       type="text"
                       value={recipiente}
                       onChange={(e) => setRecipiente(e.target.value)}
-                      placeholder={tipo === 'bebida' ? "Ex: Copo Highball, Taça de Gin..." : tipo === 'comida' ? "Ex: Prato Raso, Bowl..." : "Ex: Bisnaga, Garrafa Squeeze..."}
-                      className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 transition-colors"
+                      placeholder={tipo === 'bebida' ? "Ex: Highball, Taça..." : "Ex: Prato Raso..."}
+                      className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 transition-colors text-sm"
                     />
                   </div>
                   
                   {tipo === 'insumo' && (
-                    <div className="md:col-span-2 bg-slate-800/40 p-4 rounded-xl border border-emerald-500/20 my-2">
+                    <div className="md:col-span-3 bg-slate-800/40 p-4 rounded-xl border border-emerald-500/20 my-1">
                       <h4 className="text-sm font-medium text-emerald-400 mb-3">Rendimento Final (Base para calcular o custo unitário)</h4>
                       <div className="grid grid-cols-2 gap-4">
                         <div className="space-y-1.5">
@@ -1539,6 +1771,94 @@ export default function FichasTecnicasModule() {
                       </div>
                     </div>
                   )}
+                </div>
+
+                {/* 3. & 5. PAINEL DE RESUMO FINANCEIRO (DASHBOARD DA FICHA NO MODAL) */}
+                <div className="bg-slate-950/90 border border-slate-800 rounded-xl p-4 shadow-inner">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-3 border-b border-slate-800/80 pb-2">
+                    <div className="flex items-center gap-2">
+                      <TrendingUp className="h-4 w-4 text-emerald-400" />
+                      <span className="text-xs font-bold text-white uppercase tracking-wider">
+                        Painel Financeiro & Margem da Receita
+                      </span>
+                    </div>
+                    <span className={`text-[11px] font-semibold px-2.5 py-0.5 rounded-full border inline-flex items-center gap-1.5 w-fit ${
+                      resumoModal.statusMargem === 'excelente' 
+                        ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30'
+                        : resumoModal.statusMargem === 'atencao'
+                        ? 'bg-amber-500/10 text-amber-400 border-amber-500/30'
+                        : resumoModal.statusMargem === 'perigo'
+                        ? 'bg-rose-500/10 text-rose-400 border-rose-500/30'
+                        : 'bg-slate-800 text-slate-400 border-slate-700'
+                    }`}>
+                      {resumoModal.statusMargem === 'perigo' && <AlertTriangle className="h-3 w-3" />}
+                      {resumoModal.mensagemMargem}
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-center">
+                    {/* Pilar 1: Custo Total */}
+                    <div className="bg-slate-900/90 border border-slate-800 rounded-lg p-2.5">
+                      <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider block">Custo Total</span>
+                      <span className="text-base font-bold font-mono text-slate-200 mt-0.5 block">
+                        R$ {resumoModal.custoTotal.toFixed(2)}
+                      </span>
+                      <span className="text-[10px] text-slate-500">Soma dos insumos</span>
+                    </div>
+
+                    {/* Pilar 2: Preço de Venda */}
+                    <div className="bg-slate-900/90 border border-slate-800 rounded-lg p-2.5">
+                      <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider block">Preço de Venda</span>
+                      <span className="text-base font-bold font-mono text-white mt-0.5 block">
+                        {resumoModal.precoVenda > 0 ? `R$ ${resumoModal.precoVenda.toFixed(2)}` : 'R$ 0,00'}
+                      </span>
+                      <span className="text-[10px] text-slate-500">Valor no cardápio</span>
+                    </div>
+
+                    {/* Pilar 3: Lucro Bruto */}
+                    <div className="bg-slate-900/90 border border-slate-800 rounded-lg p-2.5">
+                      <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider block">Lucro Bruto</span>
+                      <span className={`text-base font-bold font-mono mt-0.5 block ${
+                        resumoModal.precoVenda > 0 
+                          ? resumoModal.lucroBruto > 0 
+                            ? 'text-emerald-400' 
+                            : 'text-rose-400'
+                          : 'text-slate-400'
+                      }`}>
+                        {resumoModal.precoVenda > 0 
+                          ? `R$ ${resumoModal.lucroBruto.toFixed(2)}` 
+                          : '---'}
+                      </span>
+                      <span className="text-[10px] text-slate-500">Venda - Custo</span>
+                    </div>
+
+                    {/* Pilar 4: CMV (%) com Alertas Visuais */}
+                    <div className={`border rounded-lg p-2.5 transition-colors ${
+                      resumoModal.statusMargem === 'excelente' 
+                        ? 'bg-emerald-500/10 border-emerald-500/30'
+                        : resumoModal.statusMargem === 'atencao'
+                        ? 'bg-amber-500/10 border-amber-500/30'
+                        : resumoModal.statusMargem === 'perigo'
+                        ? 'bg-rose-500/10 border-rose-500/30'
+                        : 'bg-slate-900/90 border-slate-800'
+                    }`}>
+                      <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider block">CMV (%)</span>
+                      <span className={`text-base font-bold font-mono mt-0.5 block ${
+                        resumoModal.statusMargem === 'excelente'
+                          ? 'text-emerald-400'
+                          : resumoModal.statusMargem === 'atencao'
+                          ? 'text-amber-400'
+                          : resumoModal.statusMargem === 'perigo'
+                          ? 'text-rose-400'
+                          : 'text-slate-400'
+                      }`}>
+                        {resumoModal.cmvPercentual !== null 
+                          ? `${resumoModal.cmvPercentual.toFixed(1)}%` 
+                          : '---'}
+                      </span>
+                      <span className="text-[10px] text-slate-500">Meta: ≤ 28%</span>
+                    </div>
+                  </div>
                 </div>
 
                 {/* SEÇÃO DE INGREDIENTES COM AUTOCOMPLETE UNIFICADO */}
