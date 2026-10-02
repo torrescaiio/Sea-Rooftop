@@ -3,7 +3,8 @@ import { appDb } from "../firebase";
 import { 
   Search, Plus, ChefHat, Trash2, FileText, Check, Coffee, CheckSquare, 
   Square, FlaskConical, User as UserIcon, Package, ChevronDown, ChevronUp, 
-  Sparkles, RefreshCw, AlertCircle, TrendingUp, DollarSign, AlertTriangle, X 
+  Sparkles, RefreshCw, AlertCircle, TrendingUp, DollarSign, AlertTriangle, X, ShoppingCart,
+  ArrowLeftRight, RotateCcw, Scale
 } from "lucide-react";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
@@ -12,26 +13,35 @@ export interface InsumoCatalogo {
   nome: string;
   um: string;
   custo: number;
+  fornecedor?: string;
+  detalhe?: string;
+  origemPlanilha?: 'catalogo' | 'compras';
 }
 
 export interface AutocompleteItem {
   id?: string;
   nome: string;
-  origem: 'catalogo' | 'insumo' | 'materia_prima';
+  origem: 'catalogo' | 'compras' | 'insumo' | 'materia_prima' | 'manual';
   um: string;
   custo: number;
   labelOrigem: string;
+  fornecedor?: string;
 }
 
 export interface Ingrediente {
   nome: string;
   quantidade: string;
   isCadastrado?: boolean;
-  origem?: 'manual' | 'insumo' | 'materia_prima' | 'catalogo';
+  origem?: 'manual' | 'insumo' | 'materia_prima' | 'catalogo' | 'compras';
   custoCompra?: string;
   unidadeCompra?: string;
   custoCalculado?: number;
   custo?: number;
+  // Campos de Desmembramento / Conversão de Embalagem (Fardo/Caixa para KG, L, etc.)
+  fatorConversao?: number;
+  unidadeOriginalCompra?: string;
+  custoOriginalCompra?: number;
+  isConvertido?: boolean;
 }
 
 export interface CategoriaFicha {
@@ -72,7 +82,7 @@ export interface ResumoFinanceiro {
   mensagemMargem: string;
 }
 
-// 4. & 5. TRATAMENTO DE ERROS, MATEMÁTICA E REGRAS DE NEGÓCIO DE MARGEM / CMV
+// Tratamento de erros, matemática e regras de negócio de Margem / CMV
 export const calcularResumoFinanceiro = (
   custoTotal: number, 
   precoVendaRaw: number | string | undefined
@@ -83,7 +93,7 @@ export const calcularResumoFinanceiro = (
 
   const lucroBruto = precoVenda - custoTotal;
 
-  // Se o preço de venda não foi informado ou é zero (evita divisão por zero)
+  // Se o preço de venda não foi informado ou é zero
   if (!precoVenda || precoVenda <= 0) {
     return {
       custoTotal,
@@ -144,9 +154,11 @@ export const calcularResumoFinanceiro = (
   }
 };
 
+// Endpoints das Planilhas do Google Sheets (Vendas/Catálogo e Compras/Notas Fiscais)
 const API_URL = "https://script.google.com/macros/s/AKfycbzZjwaEDHoyuIuBZ3omHGDmPxD3HA82b8In6ocV3Yp0s-6lzqeXjTs5EDUJ4HQmhx6k/exec";
+const COMPRAS_API_URL = "https://script.google.com/macros/s/AKfycbzNyhNQFrmIZ7iB--EYhcdCcNhrquWatUveNQv85-Z4e61FKaB30gNyBuwUvf517sQVWQ/exec";
 
-// Normalizes strings for tolerant comparison (handles accents, spaces, and casing)
+// Normaliza strings para busca e comparação tolerante (ignora acentos, espaços e caixa alta/baixa)
 export const normalizeText = (text: string) => {
   return (text || "")
     .trim()
@@ -155,14 +167,32 @@ export const normalizeText = (text: string) => {
     .replace(/[\u0300-\u036f]/g, "");
 };
 
-// Finds an item in the Google Sheets catalog
+// Busca inteligente no catálogo unificado da planilha
 export const findCatalogoItem = (nome: string, catalogo: InsumoCatalogo[]): InsumoCatalogo | undefined => {
   if (!nome || !catalogo || catalogo.length === 0) return undefined;
   const clean = nome.trim().toLowerCase();
+  
+  // 1. Busca exata direta
   const exact = catalogo.find(c => c.nome.trim().toLowerCase() === clean);
   if (exact) return exact;
+
+  // 2. Busca com texto normalizado
   const norm = normalizeText(nome);
-  return catalogo.find(c => normalizeText(c.nome) === norm);
+  const normalizedMatch = catalogo.find(c => normalizeText(c.nome) === norm);
+  if (normalizedMatch) return normalizedMatch;
+
+  // 3. Busca por inclusão de palavras-chave significativas
+  const words = norm.split(/\s+/).filter(w => w.length > 2);
+  if (words.length > 0) {
+    const wordMatch = catalogo.find(c => {
+      const cNorm = normalizeText(c.nome);
+      const supplierNorm = c.fornecedor ? normalizeText(c.fornecedor) : '';
+      return words.every(w => cNorm.includes(w) || supplierNorm.includes(w));
+    });
+    if (wordMatch) return wordMatch;
+  }
+
+  return undefined;
 };
 
 // Conversão inteligente de unidades culinárias e de bar
@@ -179,7 +209,7 @@ export const getUnitMultiplier = (recipeUnit: string, baseUnit: string, itemName
   const isBaseG = ['g', 'gr', 'grs', 'grama', 'gramas'].includes(bu);
   const isBaseKg = ['kg', 'kgs', 'quilo', 'quilos', 'quilograma'].includes(bu);
 
-  if (isBaseKg && isRecipeG) return 0.001; // ex: 500g de um insumo precificado por KG
+  if (isBaseKg && isRecipeG) return 0.001; // ex: 150g de um insumo precificado por KG (150 * 0.001 = 0.15 kg)
   if (isBaseG && isRecipeKg) return 1000;
 
   // Conversões de Volume (Líquidos)
@@ -199,7 +229,7 @@ export const getUnitMultiplier = (recipeUnit: string, baseUnit: string, itemName
   if ((isBaseKg || isBaseL) && ['cs', 'colher', 'colheres'].includes(ru)) return 0.015;
   if ((isBaseG || isBaseMl) && ['cs', 'colher', 'colheres'].includes(ru)) return 15;
 
-  // Unidade/Garrafa para drinks medidos em ml
+  // Garrafa para drinks medidos em ml
   const isBaseUnitOrBottle = ['un', 'unid', 'unidade', 'garrafa', 'gf', 'gfa'].includes(bu);
   if (isBaseUnitOrBottle) {
     const nameUpper = itemName.toUpperCase();
@@ -239,7 +269,7 @@ const InsumoCombobox = ({
   onChangeName,
   onSelectSuggestion,
   sugestoes,
-  placeholder = "Buscar na pasta/catálogo ou digitar..."
+  placeholder = "Buscar na planilha, pasta de insumos ou digitar..."
 }: {
   value: string;
   onChangeName: (val: string) => void;
@@ -261,9 +291,13 @@ const InsumoCombobox = ({
   }, []);
 
   const filtered = useMemo(() => {
-    if (!value || value.trim() === "") return sugestoes.slice(0, 40);
+    if (!value || value.trim() === "") return sugestoes.slice(0, 50);
     const q = normalizeText(value);
-    return sugestoes.filter(item => normalizeText(item.nome).includes(q)).slice(0, 40);
+    return sugestoes.filter(item => {
+      const nomeMatch = normalizeText(item.nome).includes(q);
+      const fornecedorMatch = item.fornecedor ? normalizeText(item.fornecedor).includes(q) : false;
+      return nomeMatch || fornecedorMatch;
+    }).slice(0, 50);
   }, [value, sugestoes]);
 
   const matched = sugestoes.find(s => normalizeText(s.nome) === normalizeText(value));
@@ -286,7 +320,9 @@ const InsumoCombobox = ({
         {matched ? (
           <span 
             className={`absolute right-2.5 top-1/2 -translate-y-1/2 flex items-center justify-center h-5 w-5 rounded-full ${
-              matched.origem === 'catalogo' 
+              matched.origem === 'compras'
+                ? 'bg-cyan-500/20 text-cyan-400'
+                : matched.origem === 'catalogo' 
                 ? 'bg-emerald-500/20 text-emerald-400' 
                 : matched.origem === 'insumo' 
                 ? 'bg-indigo-500/20 text-indigo-400' 
@@ -304,9 +340,9 @@ const InsumoCombobox = ({
       </div>
 
       {isOpen && (
-        <div className="absolute z-50 left-0 right-0 mt-1 bg-slate-800 border border-slate-700 rounded-xl shadow-2xl max-h-64 overflow-y-auto">
+        <div className="absolute z-50 left-0 right-0 mt-1 bg-slate-800 border border-slate-700 rounded-xl shadow-2xl max-h-72 overflow-y-auto">
           {sugestoes.length > 0 && (
-            <div className="p-2 text-[11px] font-semibold text-slate-400 uppercase tracking-wider border-b border-slate-700/60 bg-slate-900/90 flex justify-between items-center sticky top-0 backdrop-blur-sm z-10">
+            <div className="p-2 text-[11px] font-semibold text-slate-400 uppercase tracking-wider border-b border-slate-700/60 bg-slate-900/95 flex justify-between items-center sticky top-0 backdrop-blur-sm z-10">
               <span className="flex items-center gap-1.5 text-emerald-400">
                 <Sparkles className="h-3 w-3" /> Insumos Disponíveis ({sugestoes.length})
               </span>
@@ -317,24 +353,33 @@ const InsumoCombobox = ({
             filtered.map((item, idx) => (
               <div
                 key={idx}
-                className="px-3 py-2.5 text-sm cursor-pointer hover:bg-slate-700/80 flex items-center justify-between border-b border-slate-700/30 last:border-0 transition-colors"
+                className="px-3 py-2.5 text-sm cursor-pointer hover:bg-slate-700/80 flex items-center justify-between border-b border-slate-700/30 last:border-0 transition-colors gap-2"
                 onMouseDown={(e) => {
                   e.preventDefault();
                   onSelectSuggestion(item);
                   setIsOpen(false);
                 }}
               >
-                <div className="flex items-center gap-2">
-                  <span className="font-medium text-slate-200">{item.nome}</span>
-                  <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium border ${
-                    item.origem === 'catalogo' 
-                      ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' 
-                      : item.origem === 'insumo' 
-                      ? 'bg-indigo-500/10 text-indigo-400 border-indigo-500/20' 
-                      : 'bg-amber-500/10 text-amber-400 border-amber-500/20'
-                  }`}>
-                    {item.labelOrigem}
-                  </span>
+                <div className="flex flex-col min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="font-medium text-slate-200 truncate">{item.nome}</span>
+                    <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium border shrink-0 ${
+                      item.origem === 'compras'
+                        ? 'bg-cyan-500/10 text-cyan-400 border-cyan-500/20'
+                        : item.origem === 'catalogo' 
+                        ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' 
+                        : item.origem === 'insumo' 
+                        ? 'bg-indigo-500/10 text-indigo-400 border-indigo-500/20' 
+                        : 'bg-amber-500/10 text-amber-400 border-amber-500/20'
+                    }`}>
+                      {item.labelOrigem}
+                    </span>
+                  </div>
+                  {item.fornecedor && (
+                    <span className="text-[11px] text-slate-400 truncate mt-0.5">
+                      Fornecedor: {item.fornecedor}
+                    </span>
+                  )}
                 </div>
                 <span className="text-xs font-mono font-bold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20 shrink-0 ml-2">
                   R$ {Number(item.custo).toFixed(2)} / {item.um}
@@ -343,7 +388,7 @@ const InsumoCombobox = ({
             ))
           ) : (
             <div className="px-3 py-3 text-sm text-slate-400 text-center">
-              <span>Nenhum item correspondente encontrado.</span>
+              <span>Nenhum item correspondente encontrado para &quot;{value}&quot;.</span>
               <p className="text-xs text-slate-500 mt-1">Você pode prosseguir com o nome digitado como ingrediente avulso.</p>
             </div>
           )}
@@ -457,11 +502,11 @@ export default function FichasTecnicasModule() {
   const [showAddModal, setShowAddModal] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
 
-  // 1. ATUALIZAÇÃO DE STATE: Form states com precoVenda
+  // Form states com precoVenda
   const [tipo, setTipo] = useState<"bebida" | "comida" | "insumo">("bebida");
   const [nome, setNome] = useState("");
   const [categoria, setCategoria] = useState("");
-  const [precoVenda, setPrecoVenda] = useState<string>(""); // Novo estado para preço de venda
+  const [precoVenda, setPrecoVenda] = useState<string>("");
   const [showAddCategoria, setShowAddCategoria] = useState(false);
   const [novaCategoriaNome, setNovaCategoriaNome] = useState("");
   const [recipiente, setRecipiente] = useState("");
@@ -475,29 +520,125 @@ export default function FichasTecnicasModule() {
   const [rendimentoQtd, setRendimentoQtd] = useState<string>("1");
   const [rendimentoUnidade, setRendimentoUnidade] = useState<string>("l");
 
-  // Ingestão com tolerância a erros no script da planilha
+  // Estado para controle do desmembramento/conversão in-line de fardos/caixas
+  const [conversaoAbertaIndex, setConversaoAbertaIndex] = useState<number | null>(null);
+  const [conversaoDraft, setConversaoDraft] = useState<{
+    fator: string;
+    novaUnidade: string;
+  }>({ fator: "", novaUnidade: "KG" });
+
+  // Helper para inferir unidade de medida a partir do nome do insumo
+  const inferirUnidade = (nomeItem: string): string => {
+    const s = nomeItem.toUpperCase();
+    if (s.includes(" KG") || s.includes("QUILO") || s.includes("QUILOGRAMA")) return "KG";
+    if (s.includes(" 1LT") || s.includes(" 1L") || s.includes(" 5L") || s.includes("LITRO") || s.includes(" REFIL")) return "L";
+    if (s.includes(" ML") || s.includes(" LATA") || s.includes(" LONG NECK") || s.includes(" GFA") || s.includes(" VD ")) return "UN";
+    if (s.includes(" PAC ") || s.includes(" CX") || s.includes(" PACOTE") || s.includes(" CAIXA")) return "UN";
+    // Hortifrúti, Carnes, Queijos e Peixes geralmente cotados em KG
+    const carnesVerduras = ["CENOURA", "TOMATE", "CEBOLA", "ALHO", "BATATA", "FILE", "FILÉ", "BOVINO", "POLVO", "CAMARAO", "CAMARÃO", "SALAME", "QUEIJO", "MIGNON", "PEIXE", "COSTELA", "LIMAO", "LIMÃO", "CHURROS"];
+    if (carnesVerduras.some(cv => s.includes(cv))) return "KG";
+    return "UN";
+  };
+
+  // Ingestão unificada: busca do Catálogo de Insumos e da Planilha de Compras/Notas Fiscais
   const fetchCatalogo = async () => {
     try {
       setLoadingCatalogo(true);
       setApiError(null);
-      const response = await fetch(API_URL);
-      const text = await response.text();
 
-      if (text.includes("ReferenceError") || text.includes("<!DOCTYPE html>")) {
-        const errorMatch = text.match(/ReferenceError:[^<]+/);
-        const msg = errorMatch ? errorMatch[0].replace(/&quot;/g, '"') : "Erro de execução no Google Apps Script";
-        console.warn("Aviso na API Google Apps Script:", msg);
-        setApiError(msg);
-        return;
+      const combinedCatalog: InsumoCatalogo[] = [];
+      const seenNames = new Set<string>();
+
+      // 1. Busca do Catálogo de Insumos da Planilha (API Vendas & Insumos)
+      try {
+        const resp1 = await fetch(API_URL);
+        const text1 = await resp1.text();
+
+        if (!text1.includes("ReferenceError") && !text1.startsWith("<!DOCTYPE html>")) {
+          const json1 = JSON.parse(text1);
+          if (json1.sucesso && Array.isArray(json1.catalogoInsumos)) {
+            const standardUnits = ['un', 'unid', 'unidade', 'kg', 'kgs', 'g', 'gr', 'l', 'lt', 'lts', 'ml', 'cx', 'cx.', 'caixa', 'pct', 'pacote', 'gf', 'gfa', 'garrafa', 'dz', 'dose', 'lata', 'pç', 'peca'];
+
+            json1.catalogoInsumos.forEach((rawItem: any) => {
+              if (!rawItem) return;
+              const rawNome = (rawItem.nome || "").toString().trim();
+              const rawUm = (rawItem.um || "").toString().trim();
+              const rawCusto = Number(rawItem.custo) || 0;
+
+              // Verifica se a planilha teve colunas invertidas [Fornecedor, Produto, Custo]
+              const isUmAProductName = rawUm.length > 5 || rawUm.includes(" ") || !standardUnits.includes(rawUm.toLowerCase());
+
+              let finalNome = rawNome;
+              let finalUm = rawUm || "UN";
+              let fornecedor: string | undefined = undefined;
+
+              if (isUmAProductName) {
+                // O nome real do insumo está em rawUm (ex: "FILÉ MIGNON BOVINO", "RAPADURA", "CREME DE LEITE...")
+                finalNome = rawUm;
+                fornecedor = rawNome; // ex: "ORMENEZE", "CFRUTOS", "BL IMPORTADORA"
+                finalUm = inferirUnidade(rawUm);
+              }
+
+              if (finalNome) {
+                const norm = normalizeText(finalNome);
+                if (!seenNames.has(norm)) {
+                  seenNames.add(norm);
+                  combinedCatalog.push({
+                    nome: finalNome,
+                    um: finalUm.toUpperCase(),
+                    custo: rawCusto,
+                    fornecedor,
+                    origemPlanilha: 'catalogo'
+                  });
+                }
+              }
+            });
+          }
+        }
+      } catch (err) {
+        console.warn("Aviso ao conectar à API de Insumos:", err);
       }
 
-      const json = JSON.parse(text);
-      if (json.sucesso && Array.isArray(json.catalogoInsumos)) {
-        setCatalogoInsumos(json.catalogoInsumos);
+      // 2. Busca da Planilha de Compras & NF-e (Mais de 750 itens com preço real faturado)
+      try {
+        const resp2 = await fetch(COMPRAS_API_URL);
+        if (resp2.ok) {
+          const json2 = await resp2.json();
+          if (json2.sucesso && json2.geral && json2.geral.itensBusca) {
+            const itensBusca = json2.geral.itensBusca;
+            Object.entries(itensBusca).forEach(([nomeItem, info]: [string, any]) => {
+              const norm = normalizeText(nomeItem);
+              const qtd = Number(info?.qtd) || 0;
+              const total = Number(info?.total) || 0;
+              const unitCost = qtd > 0 ? total / qtd : 0;
+              const detectedUm = inferirUnidade(nomeItem);
+
+              if (!seenNames.has(norm)) {
+                seenNames.add(norm);
+                combinedCatalog.push({
+                  nome: nomeItem,
+                  um: detectedUm,
+                  custo: unitCost,
+                  origemPlanilha: 'compras'
+                });
+              } else {
+                // Se já existia, atualiza se o preço de compras for mais fidedigno
+                const existing = combinedCatalog.find(c => normalizeText(c.nome) === norm);
+                if (existing && existing.custo <= 0 && unitCost > 0) {
+                  existing.custo = unitCost;
+                }
+              }
+            });
+          }
+        }
+      } catch (err) {
+        console.warn("Aviso ao conectar à API de Compras:", err);
       }
+
+      setCatalogoInsumos(combinedCatalog);
     } catch (error: any) {
-      console.warn("Aviso ao conectar à API Google Apps Script:", error);
-      setApiError(error.message || "Não foi possível carregar o catálogo da planilha");
+      console.warn("Aviso ao sincronizar catálogo:", error);
+      setApiError(error.message || "Não foi possível carregar os insumos da planilha");
     } finally {
       setLoadingCatalogo(false);
     }
@@ -520,6 +661,7 @@ export default function FichasTecnicasModule() {
     setModoPreparo("");
     setRendimentoQtd("1");
     setRendimentoUnidade("l");
+    setConversaoAbertaIndex(null);
   };
 
   const handleOpenAdd = () => {
@@ -527,7 +669,7 @@ export default function FichasTecnicasModule() {
     setShowAddModal(true);
   };
 
-  // 6. RETROCOMPATIBILIDADE: Se precoVenda for nulo/indefinido em fichas antigas, assume ""
+  // Retrocompatibilidade: Se precoVenda for nulo/indefinido em fichas antigas, assume ""
   const handleEdit = (ficha: FichaTecnica) => {
     setEditingId(ficha.id!);
     setTipo(ficha.tipo);
@@ -535,13 +677,20 @@ export default function FichasTecnicasModule() {
     setCategoria(ficha.categoria || "");
     setPrecoVenda(ficha.precoVenda !== undefined && ficha.precoVenda !== null && ficha.precoVenda > 0 ? ficha.precoVenda.toString() : "");
     setRecipiente(ficha.recipiente || "");
+    setConversaoAbertaIndex(null);
     setIngredientes(ficha.ingredientes.map(i => {
       const catMatch = findCatalogoItem(i.nome, catalogoInsumos);
+      // Se já estava convertido, preserva a unidade e o custo convertido
+      const isConvertido = i.isConvertido || (typeof i.fatorConversao === 'number' && i.fatorConversao > 0);
       return {
         ...i,
         origem: i.origem || (i.isCadastrado ? 'insumo' : 'catalogo'),
         unidadeCompra: i.unidadeCompra || catMatch?.um || '',
-        custoCompra: i.custoCompra || (catMatch ? catMatch.custo.toString() : '')
+        custoCompra: i.custoCompra || (catMatch && catMatch.custo > 0 ? catMatch.custo.toFixed(2) : ''),
+        fatorConversao: i.fatorConversao,
+        unidadeOriginalCompra: i.unidadeOriginalCompra || (catMatch ? catMatch.um : undefined),
+        custoOriginalCompra: i.custoOriginalCompra ?? (catMatch && catMatch.custo > 0 ? catMatch.custo : undefined),
+        isConvertido
       };
     }));
     setModoPreparo(ficha.modoPreparo);
@@ -605,7 +754,7 @@ export default function FichasTecnicasModule() {
     }
   };
 
-  // Cálculo individual de custo por ingrediente
+  // Cálculo individual de custo por ingrediente com priorização inteligente e tolerância
   const calcularCustoIngredienteInfo = (
     ing: Ingrediente, 
     visited = new Set<string>()
@@ -613,7 +762,7 @@ export default function FichasTecnicasModule() {
     const qtdMatch = ing.quantidade.match(/^([\d.,]+)\s*(.*)$/);
     if (!qtdMatch) {
       if (typeof ing.custoCalculado === 'number' && ing.custoCalculado > 0) {
-        return { custo: ing.custoCalculado, isDynamic: false };
+        return { custo: ing.custoCalculado, isDynamic: false, origemNome: 'Snapshot Firebase' };
       }
       return { custo: 0, isDynamic: false };
     }
@@ -639,7 +788,21 @@ export default function FichasTecnicasModule() {
       };
     }
 
-    // 2. Preço dinâmico da planilha Google Sheets
+    // 2. Ingrediente com Desmembramento/Conversão de Fardo/Caixa (ex: R$ 47.30 / 30 = R$ 1.58 / KG)
+    if (ing.isConvertido && ing.custoCompra && parseFloat(ing.custoCompra.replace(',', '.')) > 0) {
+      const baseCost = parseFloat(ing.custoCompra.replace(',', '.'));
+      const baseUnit = (ing.unidadeCompra || 'un').toLowerCase();
+      const multiplier = getUnitMultiplier(unit || baseUnit, baseUnit, ing.nome);
+      return {
+        custo: val * multiplier * baseCost,
+        isDynamic: false,
+        unitCost: baseCost,
+        unit: ing.unidadeCompra || 'un',
+        origemNome: `Convertido (${ing.unidadeOriginalCompra || 'FD'} → ${ing.unidadeCompra || 'KG'})`
+      };
+    }
+
+    // 3. Preço dinâmico da planilha (Catálogo ou Compras/NF)
     const catMatch = findCatalogoItem(ing.nome, catalogoInsumos);
     if (catMatch && typeof catMatch.custo === 'number' && catMatch.custo > 0) {
       const baseUnit = (catMatch.um || 'un').toLowerCase().trim();
@@ -650,11 +813,11 @@ export default function FichasTecnicasModule() {
         isDynamic: true,
         unitCost: catMatch.custo,
         unit: catMatch.um,
-        origemNome: 'Planilha Softcom/API'
+        origemNome: catMatch.origemPlanilha === 'compras' ? 'Planilha Compras' : 'Planilha'
       };
     }
 
-    // 3. Matérias-Primas cadastradas
+    // 3. Matérias-Primas cadastradas no Firestore
     const mat = materiasPrimas.find(m => normalizeText(m.nome) === normalizeText(ing.nome));
     if (mat && mat.custo > 0) {
       const baseUnit = (mat.unidade || 'un').toLowerCase();
@@ -669,8 +832,8 @@ export default function FichasTecnicasModule() {
     }
 
     // 4. Custo unitário manual salvo no próprio ingrediente
-    if (ing.custoCompra && parseFloat(ing.custoCompra) > 0) {
-      const baseCost = parseFloat(ing.custoCompra);
+    if (ing.custoCompra && parseFloat(ing.custoCompra.replace(',', '.')) > 0) {
+      const baseCost = parseFloat(ing.custoCompra.replace(',', '.'));
       const baseUnit = (ing.unidadeCompra || 'un').toLowerCase();
       const multiplier = getUnitMultiplier(unit || baseUnit, baseUnit, ing.nome);
       return {
@@ -721,11 +884,12 @@ export default function FichasTecnicasModule() {
     return custoTotal;
   };
 
-  // Sugestões unificadas
+  // Sugestões unificadas para o Combobox
   const todasSugestoes = useMemo<AutocompleteItem[]>(() => {
     const lista: AutocompleteItem[] = [];
     const nomesAdicionados = new Set<string>();
 
+    // 1. Sub-receitas produzidas da pasta de insumos
     fichas.filter(f => f.tipo === 'insumo').forEach(subFicha => {
       const norm = normalizeText(subFicha.nome);
       const subCustoTotal = calcularCustoFicha(subFicha);
@@ -742,20 +906,23 @@ export default function FichasTecnicasModule() {
       nomesAdicionados.add(norm);
     });
 
+    // 2. Insumos da Planilha (Catálogo e Compras integrados)
     catalogoInsumos.forEach(item => {
       const norm = normalizeText(item.nome);
       if (!nomesAdicionados.has(norm)) {
         lista.push({
           nome: item.nome,
-          origem: 'catalogo',
+          origem: item.origemPlanilha === 'compras' ? 'compras' : 'catalogo',
           um: item.um || 'UN',
           custo: item.custo || 0,
-          labelOrigem: 'Planilha'
+          labelOrigem: item.origemPlanilha === 'compras' ? 'Planilha Compras' : 'Planilha',
+          fornecedor: item.fornecedor
         });
         nomesAdicionados.add(norm);
       }
     });
 
+    // 3. Matérias-Primas do Firebase
     materiasPrimas.forEach(mat => {
       const norm = normalizeText(mat.nome);
       if (!nomesAdicionados.has(norm)) {
@@ -796,9 +963,16 @@ export default function FichasTecnicasModule() {
       unidadeCompra: item.um || 'UN',
       custoCompra: item.custo > 0 ? item.custo.toFixed(2) : '0',
       origem: item.origem,
-      isCadastrado: item.origem === 'insumo'
+      isCadastrado: item.origem === 'insumo',
+      custoOriginalCompra: item.custo > 0 ? item.custo : undefined,
+      unidadeOriginalCompra: item.um || 'UN',
+      fatorConversao: undefined,
+      isConvertido: false
     };
     setIngredientes(newIngredientes);
+    if (conversaoAbertaIndex === index) {
+      setConversaoAbertaIndex(null);
+    }
   };
 
   const handleIngredienteChange = (index: number, field: keyof Ingrediente, value: string) => {
@@ -812,6 +986,8 @@ export default function FichasTecnicasModule() {
         if (!newIngredientes[index].custoCompra && match.custo > 0) newIngredientes[index].custoCompra = match.custo.toFixed(2);
         newIngredientes[index].origem = match.origem;
       }
+      newIngredientes[index].isConvertido = false;
+      newIngredientes[index].fatorConversao = undefined;
     }
     
     setIngredientes(newIngredientes);
@@ -822,9 +998,76 @@ export default function FichasTecnicasModule() {
     const newIngredientes = [...ingredientes];
     newIngredientes.splice(index, 1);
     setIngredientes(newIngredientes);
+    if (conversaoAbertaIndex === index) {
+      setConversaoAbertaIndex(null);
+    }
   };
 
-  // 6. SALVAMENTO: Salva array completo e precoVenda no Firebase
+  // Funções de Desmembramento / Conversão de Unidade de Compra (Fardo/Caixa/Galão para KG/L/etc)
+  const handleToggleConversao = (idx: number) => {
+    if (conversaoAbertaIndex === idx) {
+      setConversaoAbertaIndex(null);
+    } else {
+      const ing = ingredientes[idx];
+      setConversaoAbertaIndex(idx);
+      setConversaoDraft({
+        fator: ing.fatorConversao?.toString() || "",
+        novaUnidade: (ing.unidadeCompra && ['KG', 'L', 'G', 'ML', 'UN'].includes(ing.unidadeCompra.toUpperCase()))
+          ? ing.unidadeCompra.toUpperCase()
+          : "KG"
+      });
+    }
+  };
+
+  const handleAplicarConversao = (idx: number) => {
+    const fatorNum = parseFloat(conversaoDraft.fator.replace(',', '.'));
+    if (!fatorNum || fatorNum <= 0) {
+      alert("Por favor, informe uma quantidade válida maior que zero no fardo/caixa (ex: 30 para 30kg ou 6 para 6 unidades).");
+      return;
+    }
+
+    const currentIng = ingredientes[idx];
+    const baseCost = currentIng.custoOriginalCompra ?? (parseFloat(currentIng.custoCompra?.replace(',', '.') || '0') || 0);
+    const originalUnit = currentIng.unidadeOriginalCompra || currentIng.unidadeCompra || 'UN';
+
+    if (baseCost <= 0) {
+      alert("O custo do ingrediente precisa ser maior que zero para calcular o desmembramento.");
+      return;
+    }
+
+    const novoCustoUnitario = baseCost / fatorNum;
+
+    const newIngredientes = [...ingredientes];
+    newIngredientes[idx] = {
+      ...currentIng,
+      custoOriginalCompra: baseCost,
+      unidadeOriginalCompra: originalUnit,
+      custoCompra: novoCustoUnitario.toFixed(2),
+      unidadeCompra: conversaoDraft.novaUnidade.toUpperCase(),
+      fatorConversao: fatorNum,
+      isConvertido: true
+    };
+
+    setIngredientes(newIngredientes);
+    setConversaoAbertaIndex(null);
+  };
+
+  const handleDesfazerConversao = (idx: number) => {
+    const currentIng = ingredientes[idx];
+    const newIngredientes = [...ingredientes];
+    newIngredientes[idx] = {
+      ...currentIng,
+      custoCompra: currentIng.custoOriginalCompra ? currentIng.custoOriginalCompra.toFixed(2) : currentIng.custoCompra,
+      unidadeCompra: currentIng.unidadeOriginalCompra || 'UN',
+      fatorConversao: undefined,
+      isConvertido: false
+    };
+
+    setIngredientes(newIngredientes);
+    setConversaoAbertaIndex(null);
+  };
+
+  // Salvamento: Salva array completo e precoVenda no Firebase
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!nome.trim() || ingredientes.some(i => !i.nome.trim() || !i.quantidade.trim()) || !modoPreparo.trim()) {
@@ -842,7 +1085,11 @@ export default function FichasTecnicasModule() {
           origem: ing.origem || 'catalogo',
           custoCompra: ing.custoCompra || '',
           unidadeCompra: ing.unidadeCompra || '',
-          custoCalculado: Number(custoCalculado.toFixed(2))
+          custoCalculado: Number(custoCalculado.toFixed(2)),
+          fatorConversao: ing.fatorConversao || null,
+          unidadeOriginalCompra: ing.unidadeOriginalCompra || null,
+          custoOriginalCompra: ing.custoOriginalCompra || null,
+          isConvertido: !!ing.isConvertido
         };
       });
 
@@ -947,65 +1194,66 @@ export default function FichasTecnicasModule() {
 
       const tableData = ficha.ingredientes.map(i => {
         const c = calcularCustoIngrediente(i);
-        return [i.nome, i.quantidade, c > 0 ? `R$ ${c.toFixed(2)}` : '-'];
+        const nomeIng = i.isConvertido && i.fatorConversao
+          ? `${i.nome} (Desmembrado 1/${i.fatorConversao} ${i.unidadeCompra || 'UN'})`
+          : i.nome;
+        return [nomeIng, i.quantidade, c > 0 ? `R$ ${c.toFixed(2)}` : '-'];
       });
-      
+
       autoTable(doc, {
-        head: [['Ingrediente / Insumo', 'Quantidade', 'Custo Estimado']],
+        startY: yPos + 3,
+        head: [["Ingrediente", "Qtd Utilizada", "Custo (R$)"]],
         body: tableData,
-        startY: yPos + 4,
-        theme: 'grid',
-        headStyles: { fillColor: [30, 41, 59] }
+        theme: "striped",
+        headStyles: { fillColor: [16, 185, 129] },
+        styles: { fontSize: 10 }
       });
 
-      const finalY = (doc as any).lastAutoTable ? (doc as any).lastAutoTable.finalY : 70;
-
+      let finalY = (doc as any).lastAutoTable.finalY + 10;
       doc.setFontSize(13);
       doc.setTextColor(0);
-      doc.text("Modo de Preparo", 14, finalY + 12);
+      doc.text("Modo de Preparo", 14, finalY);
 
       doc.setFontSize(10);
-      doc.setTextColor(50);
-      const splitText = doc.splitTextToSize(ficha.modoPreparo, 180);
-      doc.text(splitText, 14, finalY + 18);
+      doc.setTextColor(80);
+      const splitModo = doc.splitTextToSize(ficha.modoPreparo, 180);
+      doc.text(splitModo, 14, finalY + 7);
     });
 
-    doc.save(`Fichas_Tecnicas_${new Date().getTime()}.pdf`);
+    doc.save(`fichas_tecnicas_${new Date().toISOString().slice(0,10)}.pdf`);
   };
 
-  const filteredFichas = fichas.filter(f => {
-    const matchSearch = f.nome.toLowerCase().includes(searchTerm.toLowerCase());
-    const matchTipo = f.tipo === filterTipo;
-    const matchCategoria = filterCategoria === "todas" || f.categoria === filterCategoria;
-    return matchSearch && matchTipo && matchCategoria;
-  }).sort((a, b) => a.nome.localeCompare(b.nome));
-
-  const handleSetFilterTipo = (novoTipo: "bebida" | "comida" | "insumo" | "materias_primas") => {
-    setFilterTipo(novoTipo);
-    setFilterCategoria("todas");
-  };
-
-  const handleUpdateMateriaPrima = async (id: string, custo: number, unidade: string) => {
-    try {
-      await appDb.update("materias_primas", id, { custo, unidade });
-    } catch (e) {
-      console.error("Erro ao atualizar matéria-prima:", e);
-      alert("Erro ao atualizar matéria-prima.");
+  const handleSelectAll = () => {
+    if (selectedIds.length === fichasFiltradas.length) {
+      setSelectedIds([]);
+    } else {
+      setSelectedIds(fichasFiltradas.map(f => f.id!));
     }
   };
 
-  // Cálculo financeiro em tempo real para o modal aberto
+  const handleSetFilterTipo = (t: "bebida" | "comida" | "insumo" | "materias_primas") => {
+    setFilterTipo(t);
+    setFilterCategoria("todas");
+  };
+
+  const fichasFiltradas = useMemo(() => {
+    return fichas.filter(f => {
+      const matchTipo = f.tipo === filterTipo;
+      const matchCategoria = filterCategoria === "todas" || f.categoria === filterCategoria;
+      const matchSearch = f.nome.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        f.ingredientes.some(i => i.nome.toLowerCase().includes(searchTerm.toLowerCase()));
+      return matchTipo && matchCategoria && matchSearch;
+    });
+  }, [fichas, filterTipo, filterCategoria, searchTerm]);
+
+  // Cálculo ao vivo do resumo financeiro no formulário do modal
   const custoTotalAtualModal = useMemo(() => {
     return ingredientes.reduce((acc, ing) => acc + calcularCustoIngrediente(ing), 0);
   }, [ingredientes, catalogoInsumos, fichas, materiasPrimas]);
 
-  const custoBaseModal = tipo === 'insumo' && parseFloat(rendimentoQtd) > 0
-    ? custoTotalAtualModal / parseFloat(rendimentoQtd)
-    : custoTotalAtualModal;
-
   const resumoModal = useMemo(() => {
-    return calcularResumoFinanceiro(custoBaseModal, precoVenda);
-  }, [custoBaseModal, precoVenda]);
+    return calcularResumoFinanceiro(custoTotalAtualModal, precoVenda);
+  }, [custoTotalAtualModal, precoVenda]);
 
   if (loading) {
     return (
@@ -1032,11 +1280,11 @@ export default function FichasTecnicasModule() {
           <div className="flex items-center gap-2 mt-2 flex-wrap">
             {loadingCatalogo ? (
               <span className="inline-flex items-center gap-1.5 text-xs text-amber-400 bg-amber-500/10 border border-amber-500/20 px-2.5 py-0.5 rounded-full">
-                <RefreshCw className="h-3 w-3 animate-spin" /> Conectando ao catálogo da planilha...
+                <RefreshCw className="h-3 w-3 animate-spin" /> Conectando às planilhas (Catálogo & Compras)...
               </span>
             ) : catalogoInsumos.length > 0 ? (
               <span className="inline-flex items-center gap-1.5 text-xs text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2.5 py-0.5 rounded-full font-medium">
-                <Sparkles className="h-3 w-3" /> Preços dinâmicos sincronizados ({catalogoInsumos.length} insumos da planilha)
+                <Sparkles className="h-3 w-3" /> Preços sincronizados ({catalogoInsumos.length} insumos da planilha disponíveis)
               </span>
             ) : (
               <span className="inline-flex items-center gap-1.5 text-xs text-slate-400 bg-slate-800/80 border border-slate-700 px-2.5 py-0.5 rounded-full">
@@ -1045,7 +1293,8 @@ export default function FichasTecnicasModule() {
             )}
             <button
               onClick={fetchCatalogo}
-              className="text-xs text-slate-400 hover:text-slate-200 underline flex items-center gap-1 transition-colors"
+              disabled={loadingCatalogo}
+              className="text-xs text-slate-400 hover:text-slate-200 underline flex items-center gap-1 transition-colors disabled:opacity-50"
               title="Recarregar catálogo da planilha"
             >
               <RefreshCw className="h-3 w-3" /> Atualizar
@@ -1078,13 +1327,13 @@ export default function FichasTecnicasModule() {
           <AlertCircle className="h-5 w-5 text-amber-400 shrink-0 mt-0.5" />
           <div className="flex-1 space-y-1">
             <p className="font-semibold text-amber-200 text-sm">
-              Aviso na API do Google Sheets (Apps Script)
+              Aviso na sincronização de planilhas
             </p>
             <p className="text-slate-300 font-mono text-[11px] bg-slate-950/70 p-2 rounded border border-amber-500/20">
               {apiError}
             </p>
             <p className="text-slate-400 text-xs">
-              O sistema continua funcionando perfeitamente utilizando os insumos da sua pasta e valores cadastrados.
+              O sistema continua funcionando perfeitamente com os insumos da pasta e valores salvos.
             </p>
           </div>
         </div>
@@ -1149,198 +1398,188 @@ export default function FichasTecnicasModule() {
                 placeholder={`Buscar em ${filterTipo === 'bebida' ? 'Bebidas' : filterTipo === 'comida' ? 'Comidas' : 'Insumos'}...`}
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
-                className="w-full pl-10 pr-4 py-2.5 bg-slate-950 border border-slate-800 rounded-lg text-sm text-slate-200 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 transition-colors"
+                className="w-full bg-slate-800 border border-slate-700 rounded-lg pl-9 pr-4 py-2 text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500 text-sm"
               />
             </div>
-            <div className="sm:w-64">
+            
+            <div className="flex gap-2 items-center">
+              <span className="text-xs text-slate-400 whitespace-nowrap">Categoria:</span>
               <select
                 value={filterCategoria}
                 onChange={(e) => setFilterCategoria(e.target.value)}
-                className="w-full px-4 py-2.5 bg-slate-950 border border-slate-800 rounded-lg text-sm text-slate-200 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 transition-colors"
+                className="bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-emerald-500"
               >
-                <option value="todas">Todas as categorias</option>
-                {categoriasLista.filter(c => c.tipo === filterTipo).map(c => (
-                  <option key={c.id || c.nome} value={c.nome}>{c.nome}</option>
-                ))}
+                <option value="todas">Todas as Categorias</option>
+                {categoriasLista
+                  .filter(c => c.tipo === filterTipo)
+                  .map(c => (
+                    <option key={c.id || c.nome} value={c.nome}>{c.nome}</option>
+                  ))
+                }
               </select>
             </div>
           </div>
 
-          <div className="p-6">
-            {filteredFichas.length === 0 ? (
-              <div className="text-center py-12">
-                <ChefHat className="h-12 w-12 text-slate-700 mx-auto mb-4" />
-                <h3 className="text-lg font-medium text-slate-300">Nenhuma ficha encontrada</h3>
-                <p className="text-slate-500 mt-1">Crie sua primeira ficha técnica com precificação e controle de margem.</p>
+          <div className="p-4">
+            <div className="flex justify-between items-center mb-4">
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={handleSelectAll}
+                  className="text-xs text-slate-400 hover:text-white flex items-center gap-1.5 bg-slate-800 hover:bg-slate-700 px-2.5 py-1.5 rounded transition-colors"
+                >
+                  {selectedIds.length === fichasFiltradas.length && fichasFiltradas.length > 0 ? (
+                    <CheckSquare className="h-4 w-4 text-emerald-500" />
+                  ) : (
+                    <Square className="h-4 w-4" />
+                  )}
+                  {selectedIds.length === fichasFiltradas.length && fichasFiltradas.length > 0 ? "Desmarcar Todos" : "Marcar Todos"}
+                </button>
+                <span className="text-xs text-slate-500">
+                  {selectedIds.length} selecionada(s)
+                </span>
+              </div>
+              <span className="text-xs text-slate-400">
+                Total: <strong className="text-white">{fichasFiltradas.length}</strong> receitas
+              </span>
+            </div>
+
+            {fichasFiltradas.length === 0 ? (
+              <div className="text-center py-12 text-slate-500">
+                <ChefHat className="h-12 w-12 mx-auto mb-3 opacity-20" />
+                <p>Nenhuma ficha técnica cadastrada nesta categoria.</p>
+                <button 
+                  onClick={handleOpenAdd}
+                  className="mt-4 text-emerald-400 hover:underline text-sm inline-flex items-center gap-1"
+                >
+                  <Plus className="h-4 w-4" /> Cadastrar Primeira Ficha
+                </button>
               </div>
             ) : (
-              <div className="flex flex-col gap-3">
-                {filteredFichas.map(ficha => {
-                  const isSelected = selectedIds.includes(ficha.id!);
-                  const isExpanded = expandedId === ficha.id;
-                  
-                  // Cálculo do custo total da ficha
+              <div className="grid grid-cols-1 gap-4">
+                {fichasFiltradas.map((ficha) => {
                   const custoTotalFicha = calcularCustoFicha(ficha);
-                  const custoExibicao = (ficha.tipo === 'insumo' && ficha.rendimentoQtd) 
-                    ? custoTotalFicha / ficha.rendimentoQtd 
-                    : custoTotalFicha;
+                  const isExpanded = expandedId === ficha.id;
+                  const isSelected = selectedIds.includes(ficha.id!);
+                  const fin = calcularResumoFinanceiro(custoTotalFicha, ficha.precoVenda);
 
-                  const hasDynamic = ficha.ingredientes.some(i => calcularCustoIngredienteInfo(i).isDynamic);
-                  const fin = calcularResumoFinanceiro(custoExibicao, ficha.precoVenda);
-                  
                   return (
                     <div 
                       key={ficha.id} 
-                      className={`bg-slate-950 border rounded-xl overflow-hidden transition-all duration-200 ${
-                        isSelected ? "border-emerald-500 ring-1 ring-emerald-500/50" : "border-slate-800 hover:border-slate-700"
+                      className={`bg-slate-800/40 border rounded-xl overflow-hidden transition-all ${
+                        isSelected ? "border-emerald-500/50 bg-emerald-500/[0.02]" : "border-slate-800 hover:border-slate-700"
                       }`}
                     >
-                      <div 
-                        className="p-4 flex items-center justify-between cursor-pointer"
-                        onClick={() => setExpandedId(isExpanded ? null : (ficha.id || null))}
-                      >
-                        <div className="flex items-center gap-4 flex-1">
-                          <button 
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleToggleSelect(ficha.id!);
-                            }}
-                            className={`flex items-center justify-center rounded-lg transition-colors p-1 hover:bg-slate-800 ${isSelected ? "text-emerald-500" : "text-slate-500"}`}
+                      <div className="p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                        <div className="flex items-center gap-3 min-w-0">
+                          <button
+                            onClick={() => handleToggleSelect(ficha.id!)}
+                            className="text-slate-400 hover:text-white"
                           >
-                            {isSelected ? <CheckSquare className="h-5 w-5" /> : <Square className="h-5 w-5" />}
+                            {isSelected ? (
+                              <CheckSquare className="h-5 w-5 text-emerald-500" />
+                            ) : (
+                              <Square className="h-5 w-5" />
+                            )}
                           </button>
                           
-                          <div className="flex-1 flex flex-col lg:flex-row lg:items-center justify-between gap-3">
-                            {/* Nome e Categoria */}
-                            <div className="flex items-center gap-3">
-                              <span className={`flex items-center justify-center h-9 w-9 rounded-full shrink-0 ${
-                                ficha.tipo === 'bebida' ? 'bg-indigo-500/20 text-indigo-400' :
-                                ficha.tipo === 'comida' ? 'bg-orange-500/20 text-orange-400' :
-                                'bg-pink-500/20 text-pink-400'
-                              }`}>
-                                {ficha.tipo === 'bebida' ? <Coffee className="h-4 w-4" /> : 
-                                 ficha.tipo === 'comida' ? <ChefHat className="h-4 w-4" /> : 
-                                 <FlaskConical className="h-4 w-4" />}
-                              </span>
-                              <div>
-                                <h3 className="font-bold text-white text-base leading-tight">{ficha.nome}</h3>
-                                <div className="flex items-center gap-2 mt-0.5">
-                                  {ficha.categoria && (
-                                    <span className="text-[10px] uppercase font-bold tracking-wider text-slate-400 bg-slate-900 px-2 py-0.5 rounded border border-slate-800">
-                                      {ficha.categoria}
-                                    </span>
-                                  )}
-                                  {hasDynamic && (
-                                    <span className="inline-flex items-center gap-1 text-[10px] text-emerald-400 font-medium">
-                                      <Sparkles className="h-2.5 w-2.5" /> Planilha
-                                    </span>
-                                  )}
-                                </div>
-                              </div>
+                          <div>
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <h3 className="font-semibold text-white text-base truncate">{ficha.nome}</h3>
+                              {ficha.categoria && (
+                                <span className="text-xs bg-slate-700 text-slate-300 px-2 py-0.5 rounded-full">
+                                  {ficha.categoria}
+                                </span>
+                              )}
+                              {ficha.tipo === 'insumo' && ficha.rendimentoQtd && (
+                                <span className="text-xs bg-indigo-500/20 text-indigo-400 px-2 py-0.5 rounded-full">
+                                  Rende: {ficha.rendimentoQtd} {ficha.rendimentoUnidade || 'un'}
+                                </span>
+                              )}
                             </div>
-                            
-                            {/* CENTRO FINANCEIRO NO CARD PRINCIPAL */}
-                            <div className="flex items-center flex-wrap gap-2.5 pl-12 lg:pl-0">
-                              {/* Custo Total */}
-                              <span 
-                                className="inline-flex items-center gap-1 text-xs font-mono font-medium px-2.5 py-1 rounded-lg bg-slate-900 text-slate-300 border border-slate-800"
-                                title="Custo total dos insumos da receita"
-                              >
-                                <span className="text-slate-500 text-[10px] uppercase font-bold">Custo:</span>
-                                R$ {custoExibicao.toFixed(2)}
-                                {ficha.tipo === 'insumo' && ficha.rendimentoUnidade ? `/${ficha.rendimentoUnidade}` : ''}
-                              </span>
+                            <p className="text-xs text-slate-400 mt-0.5">
+                              {ficha.ingredientes.length} ingrediente(s)
+                              {ficha.recipiente && ` • ${ficha.recipiente}`}
+                            </p>
+                          </div>
+                        </div>
 
-                              {/* Preço de Venda */}
-                              {fin.precoVenda > 0 ? (
-                                <span 
-                                  className="inline-flex items-center gap-1 text-xs font-mono font-bold px-2.5 py-1 rounded-lg bg-slate-900 text-white border border-slate-700"
-                                  title="Preço praticado no cardápio"
-                                >
-                                  <span className="text-slate-400 text-[10px] uppercase">Venda:</span>
+                        {/* CARDS DE CUSTO, PREÇO E MARGEM NO CABEÇALHO DO ITEM */}
+                        <div className="flex items-center gap-4 w-full sm:w-auto justify-between sm:justify-end border-t sm:border-t-0 pt-3 sm:pt-0 border-slate-700/50 flex-wrap">
+                          <div className="flex items-center gap-3">
+                            <div className="text-left sm:text-right">
+                              <span className="text-[10px] text-slate-500 block uppercase font-medium">Custo</span>
+                              <span className="text-emerald-400 font-mono font-bold text-sm">
+                                R$ {custoTotalFicha.toFixed(2)}
+                              </span>
+                            </div>
+
+                            {fin.precoVenda > 0 ? (
+                              <div className="text-left sm:text-right">
+                                <span className="text-[10px] text-slate-500 block uppercase font-medium">Venda</span>
+                                <span className="text-white font-mono font-bold text-sm">
                                   R$ {fin.precoVenda.toFixed(2)}
                                 </span>
-                              ) : (
-                                <span className="text-[11px] text-slate-500 bg-slate-900/60 px-2 py-1 rounded border border-slate-800/80">
-                                  Sem preço de venda
-                                </span>
-                              )}
-
-                              {/* Lucro Bruto */}
-                              {fin.precoVenda > 0 && (
-                                <span 
-                                  className={`inline-flex items-center gap-1 text-xs font-mono font-medium px-2.5 py-1 rounded-lg border ${
-                                    fin.lucroBruto > 0 
-                                      ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' 
-                                      : 'bg-rose-500/10 text-rose-400 border-rose-500/20'
-                                  }`}
-                                  title="Lucro Bruto (Preço de Venda - Custo)"
-                                >
-                                  <span className="text-[10px] uppercase opacity-75">Lucro:</span>
-                                  R$ {fin.lucroBruto.toFixed(2)}
-                                </span>
-                              )}
-
-                              {/* 5. ALERTA VISUAL DE MARGEM / CMV */}
-                              {fin.precoVenda > 0 ? (
-                                <span 
-                                  className={`inline-flex items-center gap-1 text-xs font-mono font-bold px-2.5 py-1 rounded-full border ${
-                                    fin.statusMargem === 'excelente'
-                                      ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/40 shadow-[0_0_8px_rgba(16,185,129,0.15)]'
-                                      : fin.statusMargem === 'atencao'
-                                      ? 'bg-amber-500/15 text-amber-400 border-amber-500/40 shadow-[0_0_8px_rgba(245,158,11,0.15)]'
-                                      : 'bg-rose-500/15 text-rose-400 border-rose-500/40 shadow-[0_0_8px_rgba(244,63,94,0.15)]'
-                                  }`}
-                                  title={fin.mensagemMargem}
-                                >
-                                  {fin.statusMargem === 'perigo' && <AlertTriangle className="h-3 w-3 text-rose-400" />}
-                                  CMV {fin.cmvPercentual !== null ? `${fin.cmvPercentual.toFixed(1)}%` : '---'}
-                                </span>
-                              ) : null}
-                              
-                              {/* Botões de Ação */}
-                              <div className="flex items-center gap-1">
-                                <button
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    handleEdit(ficha);
-                                  }}
-                                  className="p-1.5 text-slate-400 hover:text-emerald-400 hover:bg-emerald-500/10 rounded transition-colors hidden sm:block"
-                                  title="Editar Ficha"
-                                >
-                                  <FileText className="h-4 w-4" />
-                                </button>
-                                
-                                <button
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    handleDelete(ficha.id!);
-                                  }}
-                                  className="p-1.5 text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 rounded transition-colors hidden sm:block"
-                                  title="Excluir Ficha"
-                                >
-                                  <Trash2 className="h-4 w-4" />
-                                </button>
-                                
-                                <div className="text-slate-400 ml-1">
-                                  {isExpanded ? <ChevronUp className="h-5 w-5" /> : <ChevronDown className="h-5 w-5" />}
-                                </div>
                               </div>
-                            </div>
+                            ) : (
+                              <div className="text-left sm:text-right">
+                                <span className="text-[10px] text-slate-500 block uppercase font-medium">Venda</span>
+                                <span className="text-slate-500 text-xs italic">Não inf.</span>
+                              </div>
+                            )}
+
+                            {/* BADGE DE CMV */}
+                            {fin.cmvPercentual !== null && (
+                              <span className={`text-xs px-2.5 py-1 rounded-full font-mono font-bold border inline-flex items-center gap-1 ${
+                                fin.statusMargem === 'excelente' 
+                                  ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30'
+                                  : fin.statusMargem === 'atencao'
+                                  ? 'bg-amber-500/10 text-amber-400 border-amber-500/30'
+                                  : fin.statusMargem === 'perigo'
+                                  ? 'bg-rose-500/10 text-rose-400 border-rose-500/30'
+                                  : 'bg-slate-800 text-slate-400 border-slate-700'
+                              }`}>
+                                {fin.statusMargem === 'perigo' && <AlertTriangle className="h-3 w-3" />}
+                                CMV: {fin.cmvPercentual.toFixed(1)}%
+                              </span>
+                            )}
+                          </div>
+
+                          <div className="flex items-center gap-1">
+                            <button
+                              onClick={() => setExpandedId(isExpanded ? null : ficha.id!)}
+                              className="p-2 text-slate-400 hover:text-white hover:bg-slate-700 rounded-lg transition-colors"
+                              title={isExpanded ? "Recolher detalhes" : "Expandir receita e finanças"}
+                            >
+                              {isExpanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                            </button>
+                            <button
+                              onClick={() => handleEdit(ficha)}
+                              className="p-2 text-slate-400 hover:text-emerald-400 hover:bg-slate-700 rounded-lg transition-colors text-xs font-medium"
+                              title="Editar Ficha"
+                            >
+                              Editar
+                            </button>
+                            <button
+                              onClick={() => handleDelete(ficha.id!)}
+                              className="p-2 text-slate-400 hover:text-rose-400 hover:bg-slate-700 rounded-lg transition-colors"
+                              title="Excluir Ficha"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </button>
                           </div>
                         </div>
                       </div>
-                      
-                      {/* CARD EXPANDIDO: DASHBOARD FINANCEIRO + INGREDIENTES */}
+
+                      {/* CONTEÚDO EXPANDIDO: PAINEL FINANCEIRO DOS 4 PILARES E INGREDIENTES */}
                       {isExpanded && (
-                        <div className="p-5 bg-slate-900/30 border-t border-slate-800/50 space-y-5">
-                          {/* 3. PAINEL DE RESUMO FINANCEIRO (DASHBOARD DA FICHA NO CARD) */}
-                          <div className="bg-slate-950/70 border border-slate-800/80 rounded-xl p-4">
+                        <div className="border-t border-slate-700/60 p-4 bg-slate-900/60 space-y-4">
+                          {/* PAINEL DE RESUMO FINANCEIRO (DASHBOARD DA FICHA) */}
+                          <div className="bg-slate-950/80 border border-slate-800 rounded-xl p-4 shadow-inner">
                             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-3 border-b border-slate-800/80 pb-2">
                               <div className="flex items-center gap-2">
                                 <TrendingUp className="h-4 w-4 text-emerald-400" />
                                 <span className="text-xs font-bold text-white uppercase tracking-wider">
-                                  Diagnóstico Financeiro do Item
+                                  Resumo Financeiro da Receita
                                 </span>
                               </div>
                               <span className={`text-[11px] font-semibold px-2.5 py-0.5 rounded-full border inline-flex items-center gap-1.5 w-fit ${
@@ -1362,7 +1601,7 @@ export default function FichasTecnicasModule() {
                               <div className="bg-slate-900/80 border border-slate-800/80 rounded-lg p-3">
                                 <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider block">Custo Total</span>
                                 <span className="text-base font-bold font-mono text-slate-200 mt-0.5 block">
-                                  R$ {fin.custoTotal.toFixed(2)}
+                                  R$ {custoTotalFicha.toFixed(2)}
                                 </span>
                                 <span className="text-[10px] text-slate-500">Soma dos insumos</span>
                               </div>
@@ -1371,7 +1610,7 @@ export default function FichasTecnicasModule() {
                               <div className="bg-slate-900/80 border border-slate-800/80 rounded-lg p-3">
                                 <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider block">Preço de Venda</span>
                                 <span className="text-base font-bold font-mono text-white mt-0.5 block">
-                                  {fin.precoVenda > 0 ? `R$ ${fin.precoVenda.toFixed(2)}` : 'R$ 0,00'}
+                                  {fin.precoVenda > 0 ? `R$ ${fin.precoVenda.toFixed(2)}` : 'Não definido'}
                                 </span>
                                 <span className="text-[10px] text-slate-500">Cardápio</span>
                               </div>
@@ -1437,9 +1676,16 @@ export default function FichasTecnicasModule() {
                                           custoInfo.isDynamic ? "bg-emerald-400 shadow-[0_0_6px_rgba(52,211,153,0.6)]" : "bg-slate-500"
                                         }`}></span>
                                         <span className="font-medium">{ing.nome}</span>
-                                        {custoInfo.isDynamic ? (
+                                        {ing.isConvertido ? (
+                                          <span 
+                                            className="text-[10px] bg-indigo-500/10 text-indigo-300 border border-indigo-500/20 px-1.5 py-0.2 rounded font-medium inline-flex items-center gap-1"
+                                            title={`Convertido de ${ing.unidadeOriginalCompra || 'Fardo'}: R$ ${Number(ing.custoOriginalCompra || 0).toFixed(2)} ÷ ${ing.fatorConversao}`}
+                                          >
+                                            <ArrowLeftRight className="h-2.5 w-2.5 text-indigo-400" /> Desmembrado (1/{ing.fatorConversao} {ing.unidadeCompra})
+                                          </span>
+                                        ) : custoInfo.isDynamic ? (
                                           <span className="text-[10px] bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-1.5 py-0.2 rounded font-medium inline-flex items-center gap-1">
-                                            <Sparkles className="h-2.5 w-2.5" /> Planilha
+                                            <Sparkles className="h-2.5 w-2.5" /> {custoInfo.origemNome || 'Planilha'}
                                           </span>
                                         ) : custoInfo.origemNome && (
                                           <span className="text-[10px] bg-slate-800 text-slate-400 border border-slate-700 px-1.5 py-0.2 rounded font-medium">
@@ -1461,7 +1707,7 @@ export default function FichasTecnicasModule() {
                                             )}
                                           </div>
                                         ) : (
-                                          <span className="text-slate-600 font-mono text-xs w-20 text-right">-</span>
+                                          <span className="text-slate-600 font-mono text-xs">R$ 0,00</span>
                                         )}
                                       </div>
                                     </li>
@@ -1469,37 +1715,11 @@ export default function FichasTecnicasModule() {
                                 })}
                               </ul>
                             </div>
-                            
+
                             <div>
-                              <p className="text-xs text-slate-400 font-medium mb-3 uppercase tracking-wider">Modo de Preparo</p>
-                              <div className="bg-slate-900/50 rounded-lg p-4 text-sm text-slate-300 whitespace-pre-wrap border border-slate-800">
+                              <p className="text-xs text-slate-400 font-medium uppercase tracking-wider mb-2">Modo de Preparo</p>
+                              <div className="bg-slate-900 p-3.5 rounded-xl border border-slate-800/80 text-sm text-slate-300 whitespace-pre-wrap leading-relaxed">
                                 {ficha.modoPreparo}
-                              </div>
-                              
-                              <div className="mt-4 pt-3 flex justify-between items-center text-[10px] text-slate-500 uppercase tracking-wider font-mono">
-                                <span className="flex items-center gap-1"><UserIcon className="h-3 w-3" /> Criado por {ficha.createdBy || "Sistema"}</span>
-                                <span>{ficha.dataCriacao ? new Date(ficha.dataCriacao).toLocaleDateString('pt-BR') : ficha.createdAt ? new Date(ficha.createdAt).toLocaleDateString('pt-BR') : "-"}</span>
-                              </div>
-                              
-                              <div className="mt-4 flex justify-end gap-2 sm:hidden">
-                                <button
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    handleEdit(ficha);
-                                  }}
-                                  className="flex items-center gap-2 px-3 py-1.5 text-xs font-medium text-emerald-400 hover:text-white hover:bg-emerald-500/20 bg-emerald-500/10 rounded transition-colors"
-                                >
-                                  <FileText className="h-3.5 w-3.5" /> Editar
-                                </button>
-                                <button
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    handleDelete(ficha.id!);
-                                  }}
-                                  className="flex items-center gap-2 px-3 py-1.5 text-xs font-medium text-rose-400 hover:text-white hover:bg-rose-500/20 bg-rose-500/10 rounded transition-colors"
-                                >
-                                  <Trash2 className="h-3.5 w-3.5" /> Excluir
-                                </button>
                               </div>
                             </div>
                           </div>
@@ -1514,184 +1734,123 @@ export default function FichasTecnicasModule() {
         </>
         )}
 
-        {/* ABA MATÉRIAS-PRIMAS */}
         {filterTipo === 'materias_primas' && (
           <div className="p-6">
-            <div className="overflow-x-auto">
-              <table className="w-full text-left border-collapse">
-                <thead>
-                  <tr className="border-b border-slate-800 text-xs uppercase tracking-wider text-slate-400">
-                    <th className="p-3 font-medium">Nome do Insumo</th>
-                    <th className="p-3 font-medium">Preço Atualizado Planilha</th>
-                    <th className="p-3 font-medium">Custo Referência Manual (R$)</th>
-                    <th className="p-3 font-medium">Unidade de Medida</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-800/50">
-                  {materiasPrimas.length === 0 ? (
-                    <tr>
-                      <td colSpan={4} className="p-12 text-center">
-                        <Package className="h-12 w-12 text-slate-700 mx-auto mb-4" />
-                        <h3 className="text-lg font-medium text-slate-300">Nenhum insumo detectado</h3>
-                        <p className="text-slate-500 mt-1">Crie fichas técnicas e adicione ingredientes para preencher esta lista automaticamente.</p>
-                      </td>
-                    </tr>
-                  ) : materiasPrimas.map(mat => {
-                    const matchPlanilha = findCatalogoItem(mat.nome, catalogoInsumos);
-                    return (
-                      <tr key={mat.id} className="hover:bg-slate-800/20 transition-colors group">
-                        <td className="p-3">
-                          <span className="text-sm font-bold text-slate-200">{mat.nome}</span>
-                        </td>
-                        <td className="p-3">
-                          {matchPlanilha ? (
-                            <span className="inline-flex items-center gap-1.5 text-xs font-mono font-bold text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2.5 py-1 rounded-full">
-                              <Sparkles className="h-3 w-3" /> R$ {matchPlanilha.custo.toFixed(2)} / {matchPlanilha.um}
-                            </span>
-                          ) : (
-                            <span className="text-xs text-slate-500">Sem match na planilha</span>
-                          )}
-                        </td>
-                        <td className="p-3">
-                          <div className="flex items-center gap-2">
-                            <span className="text-slate-500 text-sm">R$</span>
-                            <input 
-                              type="number"
-                              step="0.01"
-                              defaultValue={mat.custo || 0}
-                              onBlur={(e) => handleUpdateMateriaPrima(mat.id!, parseFloat(e.target.value) || 0, mat.unidade)}
-                              className="w-24 bg-slate-900 border border-slate-700 rounded px-2 py-1.5 text-white font-mono focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 focus:outline-none transition-colors"
-                            />
-                          </div>
-                        </td>
-                        <td className="p-3">
-                          <select
-                            defaultValue={mat.unidade || "un"}
-                            onChange={(e) => handleUpdateMateriaPrima(mat.id!, mat.custo, e.target.value)}
-                            className="w-full max-w-[180px] bg-slate-900 border border-slate-700 rounded px-3 py-1.5 text-white focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 focus:outline-none transition-colors"
-                          >
-                            <option value="kg">Quilograma (Kg)</option>
-                            <option value="g">Grama (g)</option>
-                            <option value="l">Litro (L)</option>
-                            <option value="ml">Mililitro (ml)</option>
-                            <option value="un">Unidade (Un)</option>
-                            <option value="cx">Caixa (Cx)</option>
-                            <option value="garrafa">Garrafa</option>
-                          </select>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
+            <div className="flex justify-between items-center mb-6">
+              <div>
+                <h3 className="text-lg font-bold text-white">Catálogo de Matérias-Primas</h3>
+                <p className="text-sm text-slate-400">Ingredientes base cadastrados com custo unitário padrão.</p>
+              </div>
             </div>
+
+            {materiasPrimas.length === 0 ? (
+              <div className="text-center py-12 text-slate-500">
+                <Package className="h-12 w-12 mx-auto mb-3 opacity-20" />
+                <p>Nenhuma matéria-prima cadastrada.</p>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                {materiasPrimas.map((mat) => (
+                  <div key={mat.id || mat.nome} className="bg-slate-800/50 border border-slate-700/60 rounded-xl p-4">
+                    <span className="text-xs text-slate-400 block mb-1 font-mono uppercase">{mat.unidade}</span>
+                    <h4 className="font-semibold text-white truncate text-base">{mat.nome}</h4>
+                    <p className="text-emerald-400 font-mono font-bold text-lg mt-2">
+                      R$ {mat.custo.toFixed(2)} <span className="text-xs font-normal text-slate-400">/{mat.unidade}</span>
+                    </p>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         )}
       </div>
 
-      {/* MODAL DE CRIAÇÃO / EDIÇÃO */}
+      {/* MODAL RESPONSIVO PARA ADICIONAR / EDITAR FICHA TÉCNICA */}
       {showAddModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 bg-slate-950/80 backdrop-blur-sm overflow-hidden">
-          <div className="bg-slate-900 border border-slate-700 rounded-2xl w-[95%] sm:w-full max-w-3xl shadow-2xl flex flex-col max-h-[90vh] my-auto overflow-hidden">
-            <div className="p-4 sm:p-6 border-b border-slate-800 flex justify-between items-center bg-slate-900 rounded-t-2xl shrink-0">
-              <div>
-                <h2 className="text-lg sm:text-xl font-bold text-white uppercase tracking-wider">
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-2 sm:p-4 overflow-y-auto">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl w-[95%] sm:w-full max-w-3xl max-h-[90vh] flex flex-col shadow-2xl overflow-hidden my-auto animate-in fade-in zoom-in-95 duration-200">
+            {/* Header Fixo */}
+            <div className="p-4 sm:p-6 border-b border-slate-800 flex justify-between items-center bg-slate-900 sticky top-0 z-10 shrink-0">
+              <div className="flex items-center gap-2">
+                <ChefHat className="h-5 w-5 text-emerald-500" />
+                <h3 className="text-lg font-bold text-white">
                   {editingId ? "Editar Ficha Técnica" : "Nova Ficha Técnica"}
-                </h2>
-                <p className="text-xs sm:text-sm text-slate-400 mt-0.5">
-                  {editingId ? "Atualizar detalhes, preço de cardápio e insumos da receita." : "Cadastro de receita com precificação dinâmica e análise de CMV."}
-                </p>
+                </h3>
               </div>
               <button
                 type="button"
                 onClick={() => { setShowAddModal(false); resetForm(); }}
-                className="min-h-[44px] min-w-[44px] flex items-center justify-center p-2 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
-                title="Fechar modal"
-                aria-label="Fechar modal"
+                className="text-slate-400 hover:text-white p-2 hover:bg-slate-800 rounded-lg transition-colors"
+                title="Fechar"
               >
                 <X className="h-5 w-5" />
               </button>
             </div>
             
-            <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto flex flex-col min-h-0">
-              <div className="p-4 sm:p-6 space-y-4 sm:space-y-6 flex-1">
-                {/* 2. NOVOS CAMPOS NA UI: TIPO, NOME E PREÇO DE VENDA */}
+            {/* Formulário com Scroll Interno */}
+            <form onSubmit={handleSubmit} className="flex flex-col flex-1 overflow-y-auto">
+              <div className="p-4 sm:p-6 space-y-6 flex-1">
+                {/* CABEÇALHO DO FORMULÁRIO COM PREÇO DE VENDA */}
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                   <div className="space-y-1.5 md:col-span-1">
-                    <label className="text-sm font-medium text-slate-300">Tipo</label>
-                    <div className="flex bg-slate-950 p-1 rounded-lg border border-slate-800">
-                      <button
-                        type="button"
-                        onClick={() => setTipo('bebida')}
-                        className={`flex-1 py-2 text-sm font-medium rounded-md transition-all ${
-                          tipo === 'bebida' ? 'bg-slate-800 text-white shadow-sm' : 'text-slate-400 hover:text-slate-200'
-                        }`}
-                      >
-                        Bebida
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setTipo('comida')}
-                        className={`flex-1 py-2 text-sm font-medium rounded-md transition-all ${
-                          tipo === 'comida' ? 'bg-slate-800 text-white shadow-sm' : 'text-slate-400 hover:text-slate-200'
-                        }`}
-                      >
-                        Comida
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setTipo('insumo')}
-                        className={`flex-1 py-2 text-sm font-medium rounded-md transition-all ${
-                          tipo === 'insumo' ? 'bg-slate-800 text-white shadow-sm' : 'text-slate-400 hover:text-slate-200'
-                        }`}
-                      >
-                        Insumo
-                      </button>
-                    </div>
+                    <label className="text-sm font-medium text-slate-300">Tipo da Ficha</label>
+                    <select
+                      value={tipo}
+                      onChange={(e) => {
+                        const t = e.target.value as "bebida" | "comida" | "insumo";
+                        setTipo(t);
+                        setCategoria("");
+                      }}
+                      className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 transition-colors text-sm"
+                    >
+                      <option value="bebida">Bebida / Bar</option>
+                      <option value="comida">Comida / Cozinha</option>
+                      <option value="insumo">Insumo / Sub-preparo</option>
+                    </select>
                   </div>
 
                   <div className="space-y-1.5 md:col-span-1">
-                    <label className="text-sm font-medium text-slate-300">Nome do Produto</label>
+                    <label className="text-sm font-medium text-slate-300">Nome do Produto / Prato</label>
                     <input
                       type="text"
                       required
                       value={nome}
                       onChange={(e) => setNome(e.target.value)}
-                      placeholder={tipo === 'insumo' ? "Ex: Xarope de Gengibre..." : "Ex: Negroni, Hambúrguer..."}
+                      placeholder={tipo === 'bebida' ? "Ex: Gin Tônica Especial" : tipo === 'comida' ? "Ex: Risoto de Filé" : "Ex: Xarope Simples"}
                       className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 transition-colors text-sm"
                     />
                   </div>
 
-                  {/* Campo Preço de Venda */}
+                  {/* NOVO CAMPO: PREÇO DE VENDA (R$) */}
                   <div className="space-y-1.5 md:col-span-1">
                     <label className="text-sm font-medium text-slate-300 flex items-center justify-between">
                       <span>Preço de Venda</span>
-                      <span className="text-[10px] text-emerald-400 font-normal">Cardápio</span>
+                      <span className="text-xs text-slate-400 font-normal">Cardápio (R$)</span>
                     </label>
                     <div className="relative">
-                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm font-mono">R$</span>
+                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 text-sm font-bold">R$</span>
                       <input
                         type="number"
                         step="0.01"
                         min="0"
-                        placeholder="0.00"
                         value={precoVenda}
                         onChange={(e) => setPrecoVenda(e.target.value)}
-                        className="w-full bg-slate-800 border border-slate-700 rounded-lg pl-9 pr-3 py-2 text-white font-mono focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 transition-colors text-sm"
+                        placeholder="0.00"
+                        className="w-full bg-slate-800 border border-slate-700 rounded-lg pl-9 pr-3 py-2 text-white font-mono focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 transition-colors text-sm font-bold"
                       />
                     </div>
                   </div>
 
                   <div className="space-y-1.5 md:col-span-2">
-                    <label className="text-sm font-medium text-slate-300">Categoria <span className="text-slate-500 font-normal">(Opcional)</span></label>
+                    <label className="text-sm font-medium text-slate-300">Categoria</label>
                     {showAddCategoria ? (
                       <div className="flex gap-2">
                         <input
                           type="text"
                           value={novaCategoriaNome}
                           onChange={(e) => setNovaCategoriaNome(e.target.value)}
-                          placeholder="Nome da categoria..."
-                          className="flex-1 bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 transition-colors text-sm"
+                          placeholder="Nova categoria..."
+                          className="flex-1 bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-emerald-500 text-sm"
                           autoFocus
                         />
                         <button
@@ -1782,7 +1941,7 @@ export default function FichasTecnicasModule() {
                   )}
                 </div>
 
-                {/* 3. & 5. PAINEL DE RESUMO FINANCEIRO (DASHBOARD DA FICHA NO MODAL) */}
+                {/* PAINEL DE RESUMO FINANCEIRO (DASHBOARD DA FICHA NO MODAL) */}
                 <div className="bg-slate-950/90 border border-slate-800 rounded-xl p-4 shadow-inner">
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-3 border-b border-slate-800/80 pb-2">
                     <div className="flex items-center gap-2">
@@ -1876,7 +2035,7 @@ export default function FichasTecnicasModule() {
                     <div>
                       <label className="text-sm font-medium text-slate-300">Ingredientes / Insumos</label>
                       <p className="text-xs text-slate-400">
-                        Busque no catálogo ou na pasta de insumos para auto-preencher unidade e custo unitário.
+                        Busque no catálogo da planilha (750+ itens sincronizados) ou na pasta de insumos para auto-preencher unidade e custo.
                       </p>
                     </div>
                     <div className="flex gap-2 flex-wrap justify-end">
@@ -1907,7 +2066,7 @@ export default function FichasTecnicasModule() {
                           <div className="flex gap-2 items-start">
                             <div className="flex-1">
                               <label className="text-[11px] font-medium text-slate-400 mb-1 block">
-                                Nome do Ingrediente (Busca na Pasta e Planilha)
+                                Nome do Ingrediente (Busca na Planilha e Pasta de Insumos)
                               </label>
                               {isSubFichaExplicit ? (
                                 <SearchableSelect
@@ -1923,7 +2082,7 @@ export default function FichasTecnicasModule() {
                                   onChangeName={(val) => handleIngredienteChange(idx, 'nome', val)}
                                   onSelectSuggestion={(item) => handleSelectSuggestion(idx, item)}
                                   sugestoes={todasSugestoes}
-                                  placeholder="Digite cenoura, açúcar, tanqueray..."
+                                  placeholder="Digite cenoura, tomate, filé, açúcar, tanqueray..."
                                 />
                               )}
                             </div>
@@ -1933,7 +2092,7 @@ export default function FichasTecnicasModule() {
                               <input
                                 type="text"
                                 required
-                                placeholder="Ex: 50ml, 200g, 2"
+                                placeholder="Ex: 150g, 50ml, 2"
                                 value={ing.quantidade}
                                 onChange={(e) => handleIngredienteChange(idx, 'quantidade', e.target.value)}
                                 className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 text-sm"
@@ -1979,9 +2138,30 @@ export default function FichasTecnicasModule() {
                                 />
                               </div>
 
-                              {custoInfo.isDynamic ? (
+                              {/* BOTÃO DE DESMEMBRAMENTO / CONVERSÃO DE UNIDADE (FARDO/CAIXA PARA KG/L/ETC) */}
+                              <button
+                                type="button"
+                                onClick={() => handleToggleConversao(idx)}
+                                className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded text-xs font-medium border transition-colors ${
+                                  ing.isConvertido 
+                                    ? 'bg-indigo-500/20 text-indigo-300 border-indigo-500/40 hover:bg-indigo-500/30' 
+                                    : 'bg-slate-800 text-slate-300 border-slate-700 hover:border-indigo-500/50 hover:text-white'
+                                }`}
+                                title="Desmembrar Fardo ou Caixa (ex: R$ 47.30 fardo com 30kg → R$ 1.58 / KG)"
+                              >
+                                <ArrowLeftRight className="h-3.5 w-3.5 text-indigo-400" />
+                                <span>{ing.isConvertido ? `Desmembrado (1/${ing.fatorConversao} ${ing.unidadeCompra})` : "Desmembrar / Converter"}</span>
+                              </button>
+
+                              {/* TAG / BADGE TRANSPARENTE DE CONVERSÃO */}
+                              {ing.isConvertido ? (
+                                <span className="inline-flex items-center gap-1 text-[11px] text-indigo-300 bg-indigo-500/10 px-2 py-0.5 rounded border border-indigo-500/20 font-mono">
+                                  <Scale className="h-3 w-3 text-indigo-400" />
+                                  Convertido: R$ {Number(ing.custoOriginalCompra || 0).toFixed(2)} ÷ {ing.fatorConversao} ({ing.unidadeOriginalCompra || 'FD'} → {ing.unidadeCompra})
+                                </span>
+                              ) : custoInfo.isDynamic ? (
                                 <span className="inline-flex items-center gap-1 text-[10px] text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20 font-medium">
-                                  <Sparkles className="h-3 w-3" /> Preço Planilha
+                                  <Sparkles className="h-3 w-3" /> {custoInfo.origemNome || 'Planilha'}
                                 </span>
                               ) : custoInfo.origemNome && (
                                 <span className="inline-flex items-center gap-1 text-[10px] text-slate-300 bg-slate-800 px-2 py-0.5 rounded border border-slate-700 font-medium">
@@ -1997,6 +2177,99 @@ export default function FichasTecnicasModule() {
                               </span>
                             </div>
                           </div>
+
+                          {/* GAVETA IN-LINE DE CONVERSÃO / DESMEMBRAMENTO */}
+                          {conversaoAbertaIndex === idx && (
+                            <div className="mt-2.5 p-3.5 bg-slate-950/95 border border-indigo-500/40 rounded-xl space-y-3 shadow-xl animate-in fade-in slide-in-from-top-1 duration-150">
+                              <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800/80 pb-2">
+                                <div className="flex items-center gap-2">
+                                  <ArrowLeftRight className="h-4 w-4 text-indigo-400" />
+                                  <span className="text-xs font-bold text-white uppercase tracking-wider">
+                                    Desmembrar Embalagem (Fardo, Caixa, Galão)
+                                  </span>
+                                </div>
+                                <span className="text-[11px] text-slate-400">
+                                  Custo da Embalagem: <strong className="text-white font-mono">R$ {Number(ing.custoOriginalCompra || parseFloat(ing.custoCompra?.replace(',', '.') || '0') || 0).toFixed(2)}</strong> / {ing.unidadeOriginalCompra || ing.unidadeCompra || 'UN'}
+                                </span>
+                              </div>
+
+                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                <div className="space-y-1">
+                                  <label className="text-[11px] font-medium text-slate-300 block">
+                                    Este item / fardo contém:
+                                  </label>
+                                  <input
+                                    type="number"
+                                    step="any"
+                                    min="0.001"
+                                    value={conversaoDraft.fator}
+                                    onChange={(e) => setConversaoDraft(prev => ({ ...prev, fator: e.target.value }))}
+                                    placeholder="Ex: 30 (para 30kg ou 30 unidades)"
+                                    className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-white font-mono text-sm focus:outline-none focus:border-indigo-500"
+                                    autoFocus
+                                  />
+                                  <span className="text-[10px] text-slate-500 block">Ex: Fardo de arroz com 30kg digite 30</span>
+                                </div>
+
+                                <div className="space-y-1">
+                                  <label className="text-[11px] font-medium text-slate-300 block">
+                                    Nova Unidade de Consumo:
+                                  </label>
+                                  <select
+                                    value={conversaoDraft.novaUnidade}
+                                    onChange={(e) => setConversaoDraft(prev => ({ ...prev, novaUnidade: e.target.value }))}
+                                    className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-white text-sm focus:outline-none focus:border-indigo-500"
+                                  >
+                                    <option value="KG">Quilograma (KG)</option>
+                                    <option value="L">Litro (L)</option>
+                                    <option value="G">Grama (G)</option>
+                                    <option value="ML">Mililitro (ML)</option>
+                                    <option value="UN">Unidade (UN)</option>
+                                    <option value="DOSE">Dose (DOSE)</option>
+                                  </select>
+                                  <span className="text-[10px] text-slate-500 block">Unidade usada na receita</span>
+                                </div>
+                              </div>
+
+                              {/* Preview do cálculo em tempo real */}
+                              {parseFloat(conversaoDraft.fator.replace(',', '.')) > 0 && (
+                                <div className="p-2.5 bg-indigo-950/40 border border-indigo-500/20 rounded-lg flex items-center justify-between text-xs flex-wrap gap-2">
+                                  <span className="text-indigo-200">
+                                    Cálculo: R$ {Number(ing.custoOriginalCompra || parseFloat(ing.custoCompra?.replace(',', '.') || '0') || 0).toFixed(2)} ÷ {conversaoDraft.fator}
+                                  </span>
+                                  <span className="font-mono font-bold text-emerald-400 text-sm">
+                                    = R$ {(Number(ing.custoOriginalCompra || parseFloat(ing.custoCompra?.replace(',', '.') || '0') || 0) / parseFloat(conversaoDraft.fator.replace(',', '.'))).toFixed(2)} / {conversaoDraft.novaUnidade}
+                                  </span>
+                                </div>
+                              )}
+
+                              <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-800/60 flex-wrap">
+                                {ing.isConvertido && (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleDesfazerConversao(idx)}
+                                    className="text-xs text-amber-400 hover:text-amber-300 px-3 py-1.5 rounded border border-amber-500/30 hover:bg-amber-500/10 flex items-center gap-1 transition-colors mr-auto"
+                                  >
+                                    <RotateCcw className="h-3 w-3" /> Desfazer Desmembramento
+                                  </button>
+                                )}
+                                <button
+                                  type="button"
+                                  onClick={() => setConversaoAbertaIndex(null)}
+                                  className="text-xs text-slate-400 hover:text-white px-3 py-1.5 rounded transition-colors"
+                                >
+                                  Cancelar
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleAplicarConversao(idx)}
+                                  className="text-xs bg-indigo-600 hover:bg-indigo-500 text-white font-medium px-4 py-1.5 rounded-lg flex items-center gap-1.5 shadow-md shadow-indigo-600/20 transition-colors"
+                                >
+                                  <Check className="h-3.5 w-3.5" /> Aplicar Conversão
+                                </button>
+                              </div>
+                            </div>
+                          )}
                         </div>
                       );
                     })}
