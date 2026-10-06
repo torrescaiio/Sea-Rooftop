@@ -95,5 +95,91 @@
       "status": "Confirmado",
       "createdAt": "2026-06-20T22:33:00Z"
     }
+  ],
+  "user_roles": [
+    {
+      "__docId__": "admin-1",
+      "email": "gerente@searooftop.com.br",
+      "displayName": "Gerente Geral",
+      "role": "admin",
+      "setor": "geral",
+      "allowedModules": "ALL",
+      "createdAt": "2026-06-20T22:33:00Z"
+    },
+    {
+      "__docId__": "chef-cozinha-1",
+      "email": "cozinha@searooftop.com.br",
+      "displayName": "Chef de Cozinha",
+      "role": "chef_cozinha",
+      "setor": "cozinha",
+      "allowedModules": ["gestao_compras", "fichas_tecnicas", "checklist"],
+      "createdAt": "2026-06-20T22:33:00Z"
+    },
+    {
+      "__docId__": "chef-bar-1",
+      "email": "bar@searooftop.com.br",
+      "displayName": "Chef de Bar",
+      "role": "chef_bar",
+      "setor": "bar",
+      "allowedModules": ["gestao_compras", "fichas_tecnicas", "checklist"],
+      "createdAt": "2026-06-20T22:33:00Z"
+    }
+  ],
+  "requisicoes": [
+    {
+      "__docId__": "req-exemplo-cozinha",
+      "setor": "cozinha",
+      "solicitante": "Chef de Cozinha",
+      "solicitanteId": "chef-cozinha-1",
+      "dataCriacao": "2026-10-02T10:00:00Z",
+      "status": "pendente",
+      "itens": [
+        {
+          "id": "it-1",
+          "nome": "CENOURA",
+          "unidade": "KG",
+          "quantidadeSolicitada": 15,
+          "quantidadeAprovada": 15,
+          "ultimoPreco": 6.55,
+          "observacao": "Para preparação dos caldos"
+        },
+        {
+          "id": "it-2",
+          "nome": "FILÉ MIGNON BOVINO",
+          "unidade": "KG",
+          "quantidadeSolicitada": 20,
+          "quantidadeAprovada": 20,
+          "ultimoPreco": 80.17,
+          "observacao": "Turno do final de semana"
+        }
+      ],
+      "observacoes": "Pedido urgente para o evento de sexta-feira",
+      "valorTotalEstimado": 1701.65,
+      "createdAt": "2026-10-02T10:00:00Z"
+    },
+    {
+      "__docId__": "req-exemplo-bar",
+      "setor": "bar",
+      "solicitante": "Chef de Bar",
+      "solicitanteId": "chef-bar-1",
+      "dataCriacao": "2026-10-02T09:30:00Z",
+      "status": "aprovado",
+      "itens": [
+        {
+          "id": "it-3",
+          "nome": "LIMAO SICILIANO",
+          "unidade": "KG",
+          "quantidadeSolicitada": 8,
+          "quantidadeAprovada": 6,
+          "ultimoPreco": 15.77,
+          "observacao": "Corte de excesso aplicado pelo gerente"
+        }
+      ],
+      "observacoes": "Drinques autorais do cardápio",
+      "valorTotalEstimado": 94.62,
+      "aprovadoPor": "Gerente Geral",
+      "dataAprovacao": "2026-10-02T10:15:00Z",
+      "createdAt": "2026-10-02T09:30:00Z"
+    }
   ]
 }

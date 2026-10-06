@@ -31,8 +31,9 @@ interface SidebarProps {
 
 export const MENU_ITEMS = [
   { id: "dashboard", name: "Visão Geral", icon: LayoutDashboard },
-  { id: "equipe", name: "Equipe Operacional", icon: Users },
+  { id: "gestao_compras", name: "Requisições de Compras", icon: ShoppingCart },
   { id: "fichas_tecnicas", name: "Fichas Técnicas", icon: BookOpen },
+  { id: "equipe", name: "Equipe Operacional", icon: Users },
   { id: "checklist", name: "Checklist Gerencial", icon: CheckSquare },
   { id: "ocorrencias", name: "Ocorrências no Salão", icon: AlertTriangle },
   { id: "manutencao", name: "Manutenção & Facilities", icon: Wrench },
@@ -52,8 +53,12 @@ export default function Sidebar({ activeModule, setActiveModule, user, onSignOut
 
   const firebaseConnected = isFirebaseActive();
 
+  const isSolicitante = user?.role === "chef_cozinha" || user?.role === "chef_bar";
+
   const menuItems = user?.allowedModules && user.allowedModules !== "ALL" 
     ? MENU_ITEMS.filter(m => user.allowedModules.includes(m.id))
+    : isSolicitante
+    ? MENU_ITEMS.filter(m => ["gestao_compras", "fichas_tecnicas", "checklist", "dashboard"].includes(m.id))
     : MENU_ITEMS;
 
   // Encontra o nome do módulo ativo para exibir no cabeçalho mobile
@@ -61,10 +66,10 @@ export default function Sidebar({ activeModule, setActiveModule, user, onSignOut
 
   // Módulos prioritários para a Bottom Navigation rápida no celular
   const bottomQuickModules = [
-    menuItems.find(m => m.id === "dashboard"),
+    menuItems.find(m => m.id === "gestao_compras") || menuItems.find(m => m.id === "dashboard"),
     menuItems.find(m => m.id === "fichas_tecnicas"),
-    menuItems.find(m => m.id === "relatorios"),
-    menuItems.find(m => m.id === "compras"),
+    menuItems.find(m => m.id === "dashboard"),
+    menuItems.find(m => m.id === "relatorios") || menuItems.find(m => m.id === "checklist"),
   ].filter(Boolean) as typeof MENU_ITEMS;
 
   const handleSelectModule = (id: string) => {
@@ -145,13 +150,23 @@ export default function Sidebar({ activeModule, setActiveModule, user, onSignOut
         <div className="flex items-center justify-between pt-2">
           <div className="flex items-center space-x-3 overflow-hidden">
             <div className="h-9 w-9 rounded-xl bg-slate-800 flex items-center justify-center text-slate-200 font-bold text-sm shrink-0 border border-slate-700">
-              {user?.email ? user.email[0].toUpperCase() : "G"}
+              {user?.displayName ? user.displayName[0].toUpperCase() : user?.email ? user.email[0].toUpperCase() : "G"}
             </div>
             <div className="min-w-0 flex-1">
               <p className="text-xs font-semibold text-slate-200 truncate">
-                {user?.displayName || "Gerente"}
+                {user?.displayName || "Usuário"}
               </p>
-              <p className="text-[10px] text-slate-500 truncate">{user?.email || "gerente@searooftop.com"}</p>
+              <div className="flex items-center gap-1 mt-0.5">
+                <span className={`text-[9px] font-bold px-1.5 py-0.2 rounded border uppercase font-mono ${
+                  user?.role === "admin" 
+                    ? "bg-purple-500/10 text-purple-400 border-purple-500/30"
+                    : user?.role === "chef_cozinha"
+                    ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/30"
+                    : "bg-cyan-500/10 text-cyan-400 border-cyan-500/30"
+                }`}>
+                  {user?.role === "admin" ? "Gerência" : user?.role === "chef_cozinha" ? "Chef Cozinha" : user?.role === "chef_bar" ? "Chef Bar" : "Operador"}
+                </span>
+              </div>
             </div>
           </div>
           <button

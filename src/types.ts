@@ -182,3 +182,31 @@ export interface VendaSoftcom {
   createdAt: string;
 }
 
+export type UserRole = "admin" | "chef_cozinha" | "chef_bar";
+
+export interface ItemRequisicao {
+  id: string;
+  nome: string;
+  unidade: string;
+  quantidadeSolicitada: number;
+  quantidadeAprovada: number;
+  ultimoPreco?: number;
+  observacao?: string;
+}
+
+export interface RequisicaoCompra {
+  id?: string;
+  setor: "bar" | "cozinha" | "limpeza" | "geral";
+  solicitante: string;
+  solicitanteId: string;
+  dataCriacao: string;
+  status: "pendente" | "aprovado" | "comprado" | "finalizado" | "rejeitado";
+  itens: ItemRequisicao[];
+  observacoes?: string;
+  aprovadoPor?: string;
+  dataAprovacao?: string;
+  valorTotalEstimado?: number;
+  createdAt?: string;
+  createdBy?: string;
+}
+

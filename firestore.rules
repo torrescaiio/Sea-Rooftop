@@ -1,6 +1,19 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
+    // Perfis de Usuário & RBAC (Roles: admin, chef_cozinha, chef_bar)
+    match /user_roles/{userId} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null;
+    }
+
+    // Fluxo de Requisições de Compras (Bar, Cozinha, Limpeza)
+    match /requisicoes/{requisicaoId} {
+      allow read: if request.auth != null;
+      // Solicitantes (cozinha, bar) criam pendentes, Admin aprova e ajusta
+      allow write: if request.auth != null;
+    }
+
     match /{document=**} {
       allow read, write: if request.auth != null;
     }

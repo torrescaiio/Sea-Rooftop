@@ -16,41 +16,38 @@ import ExtrasModule from "./components/ExtrasModule";
 import RelatoriosVendasModule from "./components/RelatoriosVendasModule";
 import ConfiguracoesModule from "./components/ConfiguracoesModule";
 import FichasTecnicasModule from "./components/FichasTecnicasModule";
-import { appAuth, appDb } from "./firebase";
-import { Clock, Sun } from "lucide-react";
+import GestaoDeComprasModule from "./components/GestaoDeComprasModule";
+import { useAuth, UserRole } from "./context/AuthContext";
+import { Clock, Sun, Shield, ChefHat, Wine } from "lucide-react";
 
 export default function App() {
-  const [activeUser, setActiveUser] = useState<any>(null);
+  const { 
+    user: activeUser, 
+    role, 
+    setRole, 
+    isAdmin, 
+    isChefCozinha, 
+    isChefBar, 
+    isSolicitante, 
+    loading: checkingAuth, 
+    signOut: handleSignOut 
+  } = useAuth();
+
   const [activeModule, setActiveModule] = useState<string>("dashboard");
-  const [checkingAuth, setCheckingAuth] = useState(true);
+
+  // Ajusta módulo inicial dependendo do cargo do usuário
+  useEffect(() => {
+    if (isSolicitante) {
+      setActiveModule("gestao_compras");
+    } else if (isAdmin && activeModule === "gestao_compras") {
+      // Mantém se já estiver nele ou vai pro dashboard
+    }
+  }, [role, isSolicitante, isAdmin]);
 
   // Live clock system
   const [systemTime, setSystemTime] = useState<string>("");
 
   useEffect(() => {
-    // Sincroniza estado de autenticação real / simulado
-    const unsubscribe = appAuth.onAuthStateChange(async (user) => {
-      if (user) {
-        try {
-          const roleDoc = await appDb.get("user_roles", user.uid);
-          if (roleDoc && roleDoc.allowedModules) {
-            user.allowedModules = roleDoc.allowedModules;
-            if (roleDoc.allowedModules !== "ALL" && !roleDoc.allowedModules.includes("dashboard") && roleDoc.allowedModules.length > 0) {
-              setActiveModule(roleDoc.allowedModules[0]);
-            }
-          } else {
-            user.allowedModules = "ALL";
-          }
-        } catch (error) {
-          console.error("Error fetching user role", error);
-          user.allowedModules = "ALL";
-        }
-      }
-      setActiveUser(user);
-      setCheckingAuth(false);
-    });
-
-    // Loop do relógio interno
     const updateTime = () => {
       const now = new Date();
       setSystemTime(
@@ -64,19 +61,9 @@ export default function App() {
     const interval = setInterval(updateTime, 1000);
 
     return () => {
-      unsubscribe();
       clearInterval(interval);
     };
   }, []);
-
-  const handleSignOut = async () => {
-    try {
-      await appAuth.signOut();
-      setActiveUser(null);
-    } catch (err: any) {
-      console.error("Erro ao desautenticar:", err);
-    }
-  };
 
   // Carregando estado de autenticação inicial
   if (checkingAuth) {
@@ -94,7 +81,7 @@ export default function App() {
 
   // Se o usuário não estiver conectado, direciona para o Auth Gate
   if (!activeUser) {
-    return <AuthScreen onAuthSuccess={(user) => setActiveUser(user)} />;
+    return <AuthScreen onAuthSuccess={() => {}} />;
   }
 
   // Roteador dinâmico de módulos operacionais
@@ -102,6 +89,8 @@ export default function App() {
     switch (activeModule) {
       case "dashboard":
         return <DashboardModule />;
+      case "gestao_compras":
+        return <GestaoDeComprasModule />;
       case "equipe":
         return <EquipeModule />;
       case "fichas_tecnicas":
@@ -131,7 +120,7 @@ export default function App() {
       case "configuracoes":
         return <ConfiguracoesModule user={activeUser} />;
       default:
-        return <DashboardModule />;
+        return isSolicitante ? <GestaoDeComprasModule /> : <DashboardModule />;
     }
   };
 
@@ -150,8 +139,8 @@ export default function App() {
       <main className="flex-1 w-full min-w-0 min-h-0 flex flex-col overflow-y-auto lg:p-3 pb-16 lg:pb-3">
         <div className="flex-1 w-full flex flex-col bg-[#050505] lg:border border-slate-800/80 lg:rounded-2xl overflow-hidden shadow-2xl relative">
           
-          {/* Top Header Panel (Compacto e responsivo) */}
-          <header className="px-4 sm:px-6 py-3 sm:py-4 bg-[#050505]/90 border-b border-white/[0.05] flex items-center justify-between gap-3 shrink-0 relative z-0 backdrop-blur-md">
+          {/* Top Header Panel (Compacto e responsivo com RBAC integrado) */}
+          <header className="px-4 sm:px-6 py-2.5 sm:py-3.5 bg-[#050505]/95 border-b border-white/[0.05] flex flex-wrap items-center justify-between gap-3 shrink-0 relative z-10 backdrop-blur-md">
             <div>
               <div className="flex items-center space-x-2">
                 <Sun className="h-3.5 w-3.5 text-cyan-400 animate-spin-slow" />
@@ -159,15 +148,71 @@ export default function App() {
                   ESTAÇÃO ATIVA • SEA ROOFTOP
                 </span>
               </div>
-              <h2 className="text-sm sm:text-base font-bold tracking-tight text-white mt-0.5">
-                Olá, {activeUser.displayName || "Operador"} 
-                <span className="text-slate-500 text-xs ml-2 font-normal hidden sm:inline"> (Acesso Autorizado)</span>
-              </h2>
+              <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+                <h2 className="text-sm sm:text-base font-bold tracking-tight text-white">
+                  Olá, {activeUser.displayName || "Operador"}
+                </h2>
+                
+                {/* Badge de Cargo Ativo */}
+                <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border uppercase tracking-wider flex items-center gap-1 ${
+                  isAdmin 
+                    ? "bg-purple-500/10 text-purple-400 border-purple-500/30" 
+                    : isChefCozinha 
+                    ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/30" 
+                    : "bg-cyan-500/10 text-cyan-400 border-cyan-500/30"
+                }`}>
+                  {isAdmin && <Shield className="h-3 w-3" />}
+                  {isChefCozinha && <ChefHat className="h-3 w-3" />}
+                  {isChefBar && <Wine className="h-3 w-3" />}
+                  {isAdmin ? "Admin (Gerência)" : isChefCozinha ? "Chef de Cozinha" : "Chef de Bar"}
+                </span>
+              </div>
             </div>
 
-            {/* System Date Clock */}
-            <div className="flex items-center space-x-3">
-              <div className="px-3 py-1.5 bg-black/40 rounded-full border border-white/[0.06] flex items-center space-x-2 text-[11px] sm:text-xs text-slate-300 font-mono shadow-inner">
+            {/* Alternador Rápido de Cargo e Relógio do Sistema */}
+            <div className="flex items-center gap-2.5 flex-wrap">
+              {/* Role Quick Selector */}
+              <div className="flex items-center gap-1 bg-slate-900/90 border border-slate-800 rounded-xl p-1 text-[11px]">
+                <button
+                  type="button"
+                  onClick={() => setRole("admin")}
+                  className={`px-2.5 py-1 rounded-lg font-medium transition-all min-h-[32px] ${
+                    role === "admin"
+                      ? "bg-purple-600 text-white shadow-sm"
+                      : "text-slate-400 hover:text-white hover:bg-slate-800"
+                  }`}
+                  title="Mudar cargo para Gerente"
+                >
+                  👑 Admin
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setRole("chef_cozinha")}
+                  className={`px-2.5 py-1 rounded-lg font-medium transition-all min-h-[32px] ${
+                    role === "chef_cozinha"
+                      ? "bg-emerald-600 text-white shadow-sm"
+                      : "text-slate-400 hover:text-white hover:bg-slate-800"
+                  }`}
+                  title="Mudar cargo para Chef de Cozinha"
+                >
+                  🍳 Cozinha
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setRole("chef_bar")}
+                  className={`px-2.5 py-1 rounded-lg font-medium transition-all min-h-[32px] ${
+                    role === "chef_bar"
+                      ? "bg-cyan-600 text-white shadow-sm"
+                      : "text-slate-400 hover:text-white hover:bg-slate-800"
+                  }`}
+                  title="Mudar cargo para Chef de Bar"
+                >
+                  🍸 Bar
+                </button>
+              </div>
+
+              {/* System Date Clock */}
+              <div className="hidden sm:flex items-center px-3 py-1.5 bg-black/40 rounded-full border border-white/[0.06] space-x-2 text-[11px] text-slate-300 font-mono shadow-inner">
                 <Clock className="h-3 w-3 text-cyan-400 shrink-0" />
                 <span>{systemTime || "Sincronizando..."}</span>
               </div>

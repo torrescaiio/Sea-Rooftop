@@ -1,4 +1,4 @@
-import { initializeApp, getApps, getApp } from "firebase/app";
+import { initializeApp, getApps, getApp, deleteApp } from "firebase/app";
 import { 
   getAuth, 
   signInWithEmailAndPassword, 
@@ -94,6 +94,35 @@ export const appAuth = {
       return credential.user;
     } catch (error: any) {
       throw new Error(translateAuthError(error.code) || error.message);
+    }
+  },
+
+  createUserWithoutSwitchingSession: async (email: string, pass: string, displayName?: string): Promise<{ uid: string; email: string }> => {
+    if (!isConfigured) {
+      throw new Error("Firebase não está configurado.");
+    }
+    // Cria uma instância secundária isolada do Firebase App
+    // para cadastrar o usuário no Firebase Auth sem deslogar o administrador da sessão atual!
+    const secondaryAppName = `AdminProvisionApp_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+    const secondaryApp = initializeApp(firebaseConfig, secondaryAppName);
+    try {
+      const secondaryAuth = getAuth(secondaryApp);
+      const credential = await createUserWithEmailAndPassword(secondaryAuth, email, pass);
+      if (displayName && credential.user) {
+        await updateProfile(credential.user, { displayName });
+      }
+      const userResult = {
+        uid: credential.user.uid,
+        email: credential.user.email || email,
+      };
+      await firebaseSignOut(secondaryAuth);
+      return userResult;
+    } catch (error: any) {
+      throw new Error(translateAuthError(error.code) || error.message);
+    } finally {
+      try {
+        await deleteApp(secondaryApp);
+      } catch (_) {}
     }
   },
 
