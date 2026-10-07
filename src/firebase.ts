@@ -165,6 +165,29 @@ export const appAuth = {
   }
 };
 
+// Sanitizador defensivo para evitar erros de 'undefined' no Firestore
+function cleanForFirestore(val: any): any {
+  if (val === undefined) {
+    return null;
+  }
+  if (val === null || typeof val !== "object") {
+    return val;
+  }
+  if (val instanceof Date) {
+    return val.toISOString();
+  }
+  if (Array.isArray(val)) {
+    return val.map(item => cleanForFirestore(item === undefined ? null : item));
+  }
+  const cleanObj: Record<string, any> = {};
+  for (const [k, v] of Object.entries(val)) {
+    if (v !== undefined) {
+      cleanObj[k] = cleanForFirestore(v);
+    }
+  }
+  return cleanObj;
+}
+
 // 2. FIRESTORE DATABASE WRAPPER
 export const appDb = {
   // Read All
@@ -185,15 +208,16 @@ export const appDb = {
 
   // Add Item
   add: async (collectionName: string, itemData: any): Promise<any> => {
-    const userEmail = auth.currentUser?.email || "Sistema";
+    const userEmail = auth?.currentUser?.email || "Sistema";
     const enrichedData = {
       ...itemData,
       createdAt: new Date().toISOString(),
       createdBy: userEmail
     };
     try {
-      const docRef = await addDoc(collection(db, collectionName), enrichedData);
-      return { id: docRef.id, ...enrichedData };
+      const sanitized = cleanForFirestore(enrichedData);
+      const docRef = await addDoc(collection(db, collectionName), sanitized);
+      return { id: docRef.id, ...sanitized };
     } catch (error) {
       console.error(`Error adding to ${collectionName} with Firestore:`, error);
       throw error;
@@ -204,7 +228,8 @@ export const appDb = {
   update: async (collectionName: string, id: string, updates: any): Promise<void> => {
     try {
       const docRef = doc(db, collectionName, id);
-      await updateDoc(docRef, updates);
+      const sanitized = cleanForFirestore(updates);
+      await updateDoc(docRef, sanitized);
     } catch (error) {
       console.error(`Error updating in ${collectionName} (id: ${id}) with Firestore:`, error);
       throw error;
@@ -215,7 +240,8 @@ export const appDb = {
   set: async (collectionName: string, id: string, itemData: any): Promise<void> => {
     try {
       const docRef = doc(db, collectionName, id);
-      await setDoc(docRef, itemData);
+      const sanitized = cleanForFirestore(itemData);
+      await setDoc(docRef, sanitized);
     } catch (error) {
       console.error(`Error setting doc in ${collectionName} (id: ${id}) with Firestore:`, error);
       throw error;

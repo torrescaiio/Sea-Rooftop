@@ -195,13 +195,60 @@ export const findCatalogoItem = (nome: string, catalogo: InsumoCatalogo[]): Insu
   return undefined;
 };
 
+// Helper robusto para extrair o rendimento e a unidade de qualquer ficha técnica (suportando todas variações de campos legados e strings)
+export const getFichaRendimentoInfo = (ficha: FichaTecnica | any): { qtd: number; unidade: string } => {
+  if (!ficha) return { qtd: 1, unidade: 'un' };
+
+  const rawQtd = ficha.rendimentoQtd ?? 
+                 ficha.rendimento ?? 
+                 ficha.rendimento_qtd ?? 
+                 ficha.rendimentoQuantidade ?? 
+                 ficha.rendimentoFinal;
+  
+  let qtd = 1;
+  let unidadeExtraida = "";
+
+  if (typeof rawQtd === 'number' && !isNaN(rawQtd) && rawQtd > 0) {
+    qtd = rawQtd;
+  } else if (typeof rawQtd === 'string') {
+    const cleanStr = rawQtd.trim().replace(',', '.');
+    const match = cleanStr.match(/^([\d.]+)\s*(.*)$/);
+    if (match) {
+      const parsed = parseFloat(match[1]);
+      if (!isNaN(parsed) && parsed > 0) {
+        qtd = parsed;
+      }
+      if (match[2]) {
+        unidadeExtraida = match[2].trim().toLowerCase();
+      }
+    }
+  }
+
+  const rawUnit = ficha.rendimentoUnidade || 
+                  ficha.rendimento_unidade || 
+                  ficha.unidadeRendimento || 
+                  ficha.unidadeMedida || 
+                  ficha.unidade || 
+                  unidadeExtraida || 
+                  (ficha.tipo === 'insumo' ? 'l' : 'un');
+
+  let cleanUnit = (rawUnit || 'un').toLowerCase().trim();
+  if (['l', 'lt', 'lts', 'litro', 'litros'].includes(cleanUnit)) cleanUnit = 'l';
+  else if (['kg', 'kgs', 'quilo', 'quilos', 'quilograma'].includes(cleanUnit)) cleanUnit = 'kg';
+  else if (['ml', 'mls', 'mililitro', 'mililitros'].includes(cleanUnit)) cleanUnit = 'ml';
+  else if (['g', 'gr', 'grs', 'grama', 'gramas'].includes(cleanUnit)) cleanUnit = 'g';
+  else if (['un', 'unid', 'unidade', 'unidades', 'porcao', 'porção', 'porcoes', 'porções', 'dose', 'doses'].includes(cleanUnit)) cleanUnit = 'un';
+
+  return { qtd: qtd > 0 ? qtd : 1, unidade: cleanUnit };
+};
+
 // Conversão inteligente de unidades culinárias e de bar
-export const getUnitMultiplier = (recipeUnit: string, baseUnit: string, itemName: string = ""): number => {
+export const getUnitMultiplier = (recipeUnit: string, baseUnit: string, itemName: string = "", quantityVal: number = 0): number => {
   const ru = recipeUnit.toLowerCase().trim();
   const bu = baseUnit.toLowerCase().trim();
 
-  // Se são iguais ou a receita não especificou unidade extra
-  if (!ru || ru === bu) return 1;
+  // Se são iguais
+  if (ru && ru === bu) return 1;
 
   // Conversões de Massa (Peso)
   const isRecipeG = ['g', 'gr', 'grs', 'grama', 'gramas'].includes(ru);
@@ -211,6 +258,8 @@ export const getUnitMultiplier = (recipeUnit: string, baseUnit: string, itemName
 
   if (isBaseKg && isRecipeG) return 0.001; // ex: 150g de um insumo precificado por KG (150 * 0.001 = 0.15 kg)
   if (isBaseG && isRecipeKg) return 1000;
+  if (isBaseKg && isRecipeKg) return 1;
+  if (isBaseG && isRecipeG) return 1;
 
   // Conversões de Volume (Líquidos)
   const isRecipeMl = ['ml', 'mls', 'mililitro', 'mililitros'].includes(ru);
@@ -220,16 +269,62 @@ export const getUnitMultiplier = (recipeUnit: string, baseUnit: string, itemName
 
   if (isBaseL && isRecipeMl) return 0.001; // ex: 50ml de um insumo precificado por Litro
   if (isBaseMl && isRecipeL) return 1000;
+  if (isBaseL && isRecipeL) return 1;
+  if (isBaseMl && isRecipeMl) return 1;
 
   // Doses e medidas padrão de coquetelaria (dose padrão = 50ml)
-  if (isBaseL && ru === 'dose') return 0.050;
-  if (isBaseMl && ru === 'dose') return 50;
+  const isDose = ['dose', 'doses', 'ds'].includes(ru);
+  if (isBaseL && isDose) return 0.050;
+  if (isBaseMl && isDose) return 50;
 
-  // Colheres (sopa ~ 15ml/g, chá ~ 5ml/g)
-  if ((isBaseKg || isBaseL) && ['cs', 'colher', 'colheres'].includes(ru)) return 0.015;
-  if ((isBaseG || isBaseMl) && ['cs', 'colher', 'colheres'].includes(ru)) return 15;
+  // Onças (oz ~ 30ml)
+  const isOz = ['oz', 'onca', 'onça', 'oncas', 'onças'].includes(ru);
+  if (isBaseL && isOz) return 0.030;
+  if (isBaseMl && isOz) return 30;
 
-  // Garrafa para drinks medidos em ml
+  // Centilitros (cl ~ 10ml)
+  const isCl = ['cl'].includes(ru);
+  if (isBaseL && isCl) return 0.010;
+  if (isBaseMl && isCl) return 10;
+
+  // Dash / Lances (~ 1ml)
+  const isDash = ['dash', 'dashes', 'lance', 'lances'].includes(ru);
+  if (isBaseL && isDash) return 0.001;
+  if (isBaseMl && isDash) return 1;
+
+  // Colheres (sopa ~ 15ml/g, chá ~ 5ml/g, bailarina ~ 5ml)
+  const isColherBailarina = ['bailarina', 'cb', 'colher bailarina'].includes(ru);
+  if (isBaseL && isColherBailarina) return 0.005;
+  if (isBaseMl && isColherBailarina) return 5;
+
+  const isColherSopa = ['cs', 'colher', 'colheres', 'colher de sopa', 'sopa'].includes(ru);
+  if ((isBaseKg || isBaseL) && isColherSopa) return 0.015;
+  if ((isBaseG || isBaseMl) && isColherSopa) return 15;
+
+  const isColherCha = ['cc', 'colher de cha', 'colher de chá', 'cha', 'chá'].includes(ru);
+  if ((isBaseKg || isBaseL) && isColherCha) return 0.005;
+  if ((isBaseG || isBaseMl) && isColherCha) return 5;
+
+  // Gotas (~ 0.05ml)
+  const isGota = ['gota', 'gotas'].includes(ru);
+  if (isBaseL && isGota) return 0.00005;
+  if (isBaseMl && isGota) return 0.05;
+
+  // Xícara (~ 200ml / 200g)
+  const isXicara = ['xicara', 'xícara', 'xicaras', 'xícaras', 'copo', 'copos'].includes(ru);
+  if ((isBaseKg || isBaseL) && isXicara) return 0.200;
+  if ((isBaseG || isBaseMl) && isXicara) return 200;
+
+  // Se a receita não especificou unidade explícita (!ru):
+  if (!ru) {
+    // Se a base é Litro e a quantidade digitada for >= 5 (ex: "50" de xarope), usuário quis dizer 50ml, não 50 litros!
+    if (isBaseL && quantityVal >= 5) return 0.001;
+    // Se a base é Kg e a quantidade for >= 10 (ex: "100" de açúcar), usuário quis dizer 100g, não 100 kg!
+    if (isBaseKg && quantityVal >= 10) return 0.001;
+    return 1;
+  }
+
+  // Garrafa para drinks medidos em ml / dose
   const isBaseUnitOrBottle = ['un', 'unid', 'unidade', 'garrafa', 'gf', 'gfa'].includes(bu);
   if (isBaseUnitOrBottle) {
     const nameUpper = itemName.toUpperCase();
@@ -256,7 +351,8 @@ export const getUnitMultiplier = (recipeUnit: string, baseUnit: string, itemName
     if (bottleMl > 0) {
       if (isRecipeMl) return 1 / bottleMl;
       if (isRecipeL) return 1000 / bottleMl;
-      if (ru === 'dose') return 50 / bottleMl;
+      if (isDose) return 50 / bottleMl;
+      if (isOz) return 30 / bottleMl;
     }
   }
 
@@ -694,10 +790,9 @@ export default function FichasTecnicasModule() {
       };
     }));
     setModoPreparo(ficha.modoPreparo);
-    if (ficha.tipo === 'insumo') {
-      setRendimentoQtd(ficha.rendimentoQtd?.toString() || "1");
-      setRendimentoUnidade(ficha.rendimentoUnidade || "l");
-    }
+    const rendInfo = getFichaRendimentoInfo(ficha);
+    setRendimentoQtd(rendInfo.qtd.toString());
+    setRendimentoUnidade(rendInfo.unidade);
     setShowAddModal(true);
     setExpandedId(null);
   };
@@ -759,40 +854,64 @@ export default function FichasTecnicasModule() {
     ing: Ingrediente, 
     visited = new Set<string>()
   ): { custo: number; isDynamic: boolean; unitCost?: number; unit?: string; origemNome?: string } => {
-    const qtdMatch = ing.quantidade.match(/^([\d.,]+)\s*(.*)$/);
-    if (!qtdMatch) {
+    let val = 0;
+    let unit = "";
+
+    // Suporte a frações (ex: 1/2 dose, 1/4 colher) e números normais
+    const fracMatch = ing.quantidade ? ing.quantidade.match(/^(\d+)\/(\d+)\s*(.*)$/) : null;
+    if (fracMatch) {
+      val = parseInt(fracMatch[1], 10) / parseInt(fracMatch[2], 10);
+      unit = fracMatch[3].toLowerCase().trim();
+    } else {
+      const qtdMatch = ing.quantidade ? ing.quantidade.match(/^([\d.,]+)\s*(.*)$/) : null;
+      if (qtdMatch) {
+        val = parseFloat(qtdMatch[1].replace(',', '.'));
+        unit = qtdMatch[2].toLowerCase().trim();
+      }
+    }
+
+    if (!val || isNaN(val) || val <= 0) {
       if (typeof ing.custoCalculado === 'number' && ing.custoCalculado > 0) {
         return { custo: ing.custoCalculado, isDynamic: false, origemNome: 'Snapshot Firebase' };
+      }
+      if (ing.custoCompra && parseFloat(ing.custoCompra.replace(',', '.')) > 0) {
+        const manual = parseFloat(ing.custoCompra.replace(',', '.'));
+        return { custo: manual, isDynamic: false, unitCost: manual, unit: ing.unidadeCompra || 'un', origemNome: 'Custo Manual' };
       }
       return { custo: 0, isDynamic: false };
     }
 
-    const val = parseFloat(qtdMatch[1].replace(',', '.'));
-    const unit = qtdMatch[2].toLowerCase().trim();
+    // 1. Sub-receita produzida (Insumo ou preparo próprio cadastrado na pasta de fichas)
+    const normIngNome = normalizeText(ing.nome);
+    const subFicha = fichas.find(f => normalizeText(f.nome) === normIngNome && f.tipo === 'insumo') ||
+                     fichas.find(f => normalizeText(f.nome) === normIngNome) ||
+                     fichas.find(f => {
+                       const fNorm = normalizeText(f.nome);
+                       return fNorm.length > 3 && (normIngNome.includes(fNorm) || fNorm.includes(normIngNome));
+                     });
 
-    // 1. Sub-receita produzida (Insumo / Preparo na pasta)
-    const subFicha = fichas.find(f => normalizeText(f.nome) === normalizeText(ing.nome) && f.tipo === 'insumo');
     if (subFicha) {
       const subCustoTotal = calcularCustoFicha(subFicha, visited);
-      const rendQtd = subFicha.rendimentoQtd || 1;
-      const rendUnit = (subFicha.rendimentoUnidade || 'un').toLowerCase();
-      const subCustoUnitario = subCustoTotal / rendQtd;
-      const multiplier = getUnitMultiplier(unit || rendUnit, rendUnit, ing.nome);
+      const rendInfo = getFichaRendimentoInfo(subFicha);
+      const subCustoUnitario = subCustoTotal / rendInfo.qtd;
+      const multiplier = getUnitMultiplier(unit || rendInfo.unidade, rendInfo.unidade, ing.nome, val);
 
-      return {
-        custo: (val * multiplier) * subCustoUnitario,
-        isDynamic: false,
-        unitCost: subCustoUnitario,
-        unit: rendUnit,
-        origemNome: 'Insumo / Pasta'
-      };
+      if (subCustoTotal > 0 || subCustoUnitario > 0) {
+        return {
+          custo: (val * multiplier) * subCustoUnitario,
+          isDynamic: false,
+          unitCost: subCustoUnitario,
+          unit: rendInfo.unidade,
+          origemNome: subFicha.tipo === 'insumo' ? 'Insumo / Pasta' : 'Receita Própria'
+        };
+      }
     }
 
     // 2. Ingrediente com Desmembramento/Conversão de Fardo/Caixa (ex: R$ 47.30 / 30 = R$ 1.58 / KG)
     if (ing.isConvertido && ing.custoCompra && parseFloat(ing.custoCompra.replace(',', '.')) > 0) {
       const baseCost = parseFloat(ing.custoCompra.replace(',', '.'));
       const baseUnit = (ing.unidadeCompra || 'un').toLowerCase();
-      const multiplier = getUnitMultiplier(unit || baseUnit, baseUnit, ing.nome);
+      const multiplier = getUnitMultiplier(unit || baseUnit, baseUnit, ing.nome, val);
       return {
         custo: val * multiplier * baseCost,
         isDynamic: false,
@@ -806,7 +925,7 @@ export default function FichasTecnicasModule() {
     const catMatch = findCatalogoItem(ing.nome, catalogoInsumos);
     if (catMatch && typeof catMatch.custo === 'number' && catMatch.custo > 0) {
       const baseUnit = (catMatch.um || 'un').toLowerCase().trim();
-      const multiplier = getUnitMultiplier(unit || baseUnit, baseUnit, ing.nome);
+      const multiplier = getUnitMultiplier(unit || baseUnit, baseUnit, ing.nome, val);
       const custoFinal = val * multiplier * catMatch.custo;
       return {
         custo: custoFinal,
@@ -817,11 +936,11 @@ export default function FichasTecnicasModule() {
       };
     }
 
-    // 3. Matérias-Primas cadastradas no Firestore
+    // 4. Matérias-Primas cadastradas no Firestore
     const mat = materiasPrimas.find(m => normalizeText(m.nome) === normalizeText(ing.nome));
     if (mat && mat.custo > 0) {
       const baseUnit = (mat.unidade || 'un').toLowerCase();
-      const multiplier = getUnitMultiplier(unit || baseUnit, baseUnit, ing.nome);
+      const multiplier = getUnitMultiplier(unit || baseUnit, baseUnit, ing.nome, val);
       return {
         custo: val * multiplier * mat.custo,
         isDynamic: false,
@@ -831,11 +950,11 @@ export default function FichasTecnicasModule() {
       };
     }
 
-    // 4. Custo unitário manual salvo no próprio ingrediente
+    // 5. Custo unitário manual salvo no próprio ingrediente
     if (ing.custoCompra && parseFloat(ing.custoCompra.replace(',', '.')) > 0) {
       const baseCost = parseFloat(ing.custoCompra.replace(',', '.'));
       const baseUnit = (ing.unidadeCompra || 'un').toLowerCase();
-      const multiplier = getUnitMultiplier(unit || baseUnit, baseUnit, ing.nome);
+      const multiplier = getUnitMultiplier(unit || baseUnit, baseUnit, ing.nome, val);
       return {
         custo: val * multiplier * baseCost,
         isDynamic: false,
@@ -845,7 +964,7 @@ export default function FichasTecnicasModule() {
       };
     }
 
-    // 5. Snapshot salvo anteriormente no Firebase
+    // 6. Snapshot salvo anteriormente no Firebase
     if (typeof ing.custoCalculado === 'number' && ing.custoCalculado > 0) {
       return {
         custo: ing.custoCalculado,
@@ -854,7 +973,7 @@ export default function FichasTecnicasModule() {
       };
     }
 
-    // 6. Custo legado direto
+    // 7. Custo legado direto
     if (typeof (ing as any).custo === 'number' && (ing as any).custo > 0) {
       return {
         custo: (ing as any).custo,
@@ -889,19 +1008,19 @@ export default function FichasTecnicasModule() {
     const lista: AutocompleteItem[] = [];
     const nomesAdicionados = new Set<string>();
 
-    // 1. Sub-receitas produzidas da pasta de insumos
-    fichas.filter(f => f.tipo === 'insumo').forEach(subFicha => {
+    // 1. Sub-receitas produzidas da pasta de insumos e receitas gerais
+    fichas.forEach(subFicha => {
       const norm = normalizeText(subFicha.nome);
       const subCustoTotal = calcularCustoFicha(subFicha);
-      const rendQtd = subFicha.rendimentoQtd || 1;
-      const subCustoUnitario = subCustoTotal / rendQtd;
+      const rendInfo = getFichaRendimentoInfo(subFicha);
+      const subCustoUnitario = subCustoTotal / rendInfo.qtd;
       lista.push({
         id: subFicha.id,
         nome: subFicha.nome,
         origem: 'insumo',
-        um: subFicha.rendimentoUnidade || 'un',
+        um: rendInfo.unidade || 'un',
         custo: subCustoUnitario,
-        labelOrigem: 'Insumo / Pasta'
+        labelOrigem: subFicha.tipo === 'insumo' ? 'Insumo / Pasta' : 'Receita Própria'
       });
       nomesAdicionados.add(norm);
     });
@@ -1106,10 +1225,9 @@ export default function FichasTecnicasModule() {
         dataCriacao: new Date().toISOString()
       };
       
-      if (tipo === 'insumo') {
-        novaFicha.rendimentoQtd = parseFloat(rendimentoQtd) || 1;
-        novaFicha.rendimentoUnidade = rendimentoUnidade || 'un';
-      }
+      const rendQtdParsed = parseFloat(rendimentoQtd.replace(',', '.')) || 1;
+      novaFicha.rendimentoQtd = rendQtdParsed > 0 ? rendQtdParsed : 1;
+      novaFicha.rendimentoUnidade = rendimentoUnidade || (tipo === 'insumo' ? 'l' : 'un');
       
       if (editingId) {
         const existingFicha = fichas.find(f => f.id === editingId);
@@ -1181,10 +1299,15 @@ export default function FichasTecnicasModule() {
 
       // Resumo Financeiro no PDF
       const custoTotalFicha = calcularCustoFicha(ficha);
-      const fin = calcularResumoFinanceiro(custoTotalFicha, ficha.precoVenda);
+      const rendInfo = getFichaRendimentoInfo(ficha);
+      const custoUnitarioFicha = custoTotalFicha / rendInfo.qtd;
+      const hasRendimento = rendInfo.qtd > 1 || ficha.tipo === 'insumo';
+      const custoParaResumo = hasRendimento ? custoUnitarioFicha : custoTotalFicha;
+      const fin = calcularResumoFinanceiro(custoParaResumo, ficha.precoVenda);
       doc.setFontSize(10);
       doc.setTextColor(40);
-      const resumoPdf = `Custo Total: R$ ${fin.custoTotal.toFixed(2)} | Preço de Venda: ${fin.precoVenda > 0 ? 'R$ ' + fin.precoVenda.toFixed(2) : 'Não informado'} | Lucro: ${fin.precoVenda > 0 ? 'R$ ' + fin.lucroBruto.toFixed(2) : '-'} | CMV: ${fin.cmvPercentual ? fin.cmvPercentual.toFixed(1) + '%' : '-'}`;
+      const rendTexto = hasRendimento ? ` | Rendimento: ${rendInfo.qtd} ${rendInfo.unidade} (Custo Unit.: R$ ${custoUnitarioFicha.toFixed(2)}/${rendInfo.unidade})` : '';
+      const resumoPdf = `Custo Total: R$ ${custoTotalFicha.toFixed(2)}${rendTexto} | Preço de Venda: ${fin.precoVenda > 0 ? 'R$ ' + fin.precoVenda.toFixed(2) : 'Não informado'} | Lucro: ${fin.precoVenda > 0 ? 'R$ ' + fin.lucroBruto.toFixed(2) : '-'} | CMV: ${fin.cmvPercentual ? fin.cmvPercentual.toFixed(1) + '%' : '-'}`;
       doc.text(resumoPdf, 14, yPos);
       yPos += 8;
 
@@ -1251,9 +1374,22 @@ export default function FichasTecnicasModule() {
     return ingredientes.reduce((acc, ing) => acc + calcularCustoIngrediente(ing), 0);
   }, [ingredientes, catalogoInsumos, fichas, materiasPrimas]);
 
+  const rendQtdAtualModal = useMemo(() => {
+    const q = parseFloat(rendimentoQtd.replace(',', '.'));
+    return (q && !isNaN(q) && q > 0) ? q : 1;
+  }, [rendimentoQtd]);
+
+  const custoUnitarioAtualModal = useMemo(() => {
+    return custoTotalAtualModal / rendQtdAtualModal;
+  }, [custoTotalAtualModal, rendQtdAtualModal]);
+
   const resumoModal = useMemo(() => {
-    return calcularResumoFinanceiro(custoTotalAtualModal, precoVenda);
-  }, [custoTotalAtualModal, precoVenda]);
+    // Para cálculo de margem e CMV no cardápio, utiliza o custo unitário (por litro/porção)
+    const custoParaResumo = (tipo === 'insumo' || rendQtdAtualModal > 1) 
+      ? custoUnitarioAtualModal 
+      : custoTotalAtualModal;
+    return calcularResumoFinanceiro(custoParaResumo, precoVenda);
+  }, [custoTotalAtualModal, custoUnitarioAtualModal, rendQtdAtualModal, tipo, precoVenda]);
 
   if (loading) {
     return (
@@ -1458,9 +1594,13 @@ export default function FichasTecnicasModule() {
               <div className="grid grid-cols-1 gap-4">
                 {fichasFiltradas.map((ficha) => {
                   const custoTotalFicha = calcularCustoFicha(ficha);
+                  const rendInfo = getFichaRendimentoInfo(ficha);
+                  const custoUnitarioFicha = custoTotalFicha / rendInfo.qtd;
+                  const hasRendimento = rendInfo.qtd > 1 || ficha.tipo === 'insumo';
+                  const custoParaResumo = hasRendimento ? custoUnitarioFicha : custoTotalFicha;
                   const isExpanded = expandedId === ficha.id;
                   const isSelected = selectedIds.includes(ficha.id!);
-                  const fin = calcularResumoFinanceiro(custoTotalFicha, ficha.precoVenda);
+                  const fin = calcularResumoFinanceiro(custoParaResumo, ficha.precoVenda);
 
                   return (
                     <div 
@@ -1490,9 +1630,10 @@ export default function FichasTecnicasModule() {
                                   {ficha.categoria}
                                 </span>
                               )}
-                              {ficha.tipo === 'insumo' && ficha.rendimentoQtd && (
-                                <span className="text-xs bg-indigo-500/20 text-indigo-400 px-2 py-0.5 rounded-full">
-                                  Rende: {ficha.rendimentoQtd} {ficha.rendimentoUnidade || 'un'}
+                              {hasRendimento && (
+                                <span className="text-xs bg-indigo-500/20 text-indigo-400 px-2 py-0.5 rounded-full font-medium inline-flex items-center gap-1 border border-indigo-500/30">
+                                  <FlaskConical className="h-3 w-3" />
+                                  Rende: {rendInfo.qtd} {rendInfo.unidade} • R$ {custoUnitarioFicha.toFixed(2)}/{rendInfo.unidade}
                                 </span>
                               )}
                             </div>
@@ -1507,10 +1648,17 @@ export default function FichasTecnicasModule() {
                         <div className="flex items-center gap-4 w-full sm:w-auto justify-between sm:justify-end border-t sm:border-t-0 pt-3 sm:pt-0 border-slate-700/50 flex-wrap">
                           <div className="flex items-center gap-3">
                             <div className="text-left sm:text-right">
-                              <span className="text-[10px] text-slate-500 block uppercase font-medium">Custo</span>
-                              <span className="text-emerald-400 font-mono font-bold text-sm">
-                                R$ {custoTotalFicha.toFixed(2)}
+                              <span className="text-[10px] text-slate-500 block uppercase font-medium">
+                                {hasRendimento ? `Custo / ${rendInfo.unidade.toUpperCase()}` : "Custo"}
                               </span>
+                              <span className="text-emerald-400 font-mono font-bold text-sm">
+                                R$ {custoUnitarioFicha.toFixed(2)}
+                              </span>
+                              {hasRendimento && (
+                                <span className="text-[10px] text-slate-400 block font-mono">
+                                  (R$ {custoTotalFicha.toFixed(2)} total • {rendInfo.qtd} {rendInfo.unidade})
+                                </span>
+                              )}
                             </div>
 
                             {fin.precoVenda > 0 ? (
@@ -1597,13 +1745,19 @@ export default function FichasTecnicasModule() {
                             </div>
 
                             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-center">
-                              {/* Pilar 1: Custo Total */}
+                              {/* Pilar 1: Custo */}
                               <div className="bg-slate-900/80 border border-slate-800/80 rounded-lg p-3">
-                                <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider block">Custo Total</span>
-                                <span className="text-base font-bold font-mono text-slate-200 mt-0.5 block">
-                                  R$ {custoTotalFicha.toFixed(2)}
+                                <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider block">
+                                  {hasRendimento ? `Custo / ${rendInfo.unidade.toUpperCase()}` : "Custo Total"}
                                 </span>
-                                <span className="text-[10px] text-slate-500">Soma dos insumos</span>
+                                <span className="text-base font-bold font-mono text-emerald-400 mt-0.5 block">
+                                  R$ {custoUnitarioFicha.toFixed(2)}
+                                </span>
+                                <span className="text-[10px] text-slate-500 block">
+                                  {hasRendimento 
+                                    ? `R$ ${custoTotalFicha.toFixed(2)} total ÷ ${rendInfo.qtd} ${rendInfo.unidade}` 
+                                    : "Soma dos insumos"}
+                                </span>
                               </div>
 
                               {/* Pilar 2: Preço de Venda */}
@@ -1906,19 +2060,32 @@ export default function FichasTecnicasModule() {
                     />
                   </div>
                   
-                  {tipo === 'insumo' && (
+                  {(tipo === 'insumo' || parseFloat(rendimentoQtd) > 1) && (
                     <div className="md:col-span-3 bg-slate-800/40 p-4 rounded-xl border border-emerald-500/20 my-1">
-                      <h4 className="text-sm font-medium text-emerald-400 mb-3">Rendimento Final (Base para calcular o custo unitário)</h4>
+                      <div className="flex items-center justify-between mb-2">
+                        <h4 className="text-sm font-semibold text-emerald-400 flex items-center gap-2">
+                          <FlaskConical className="h-4 w-4" /> Rendimento Final da Receita (Base para calcular o custo unitário)
+                        </h4>
+                        {rendQtdAtualModal > 1 && (
+                          <span className="text-xs bg-emerald-500/10 text-emerald-300 border border-emerald-500/20 px-2 py-0.5 rounded font-mono">
+                            Divisão automática: Custo Total ÷ {rendQtdAtualModal} {rendimentoUnidade.toUpperCase()}
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-xs text-slate-400 mb-3">
+                        Informe quanto a receita produz ao todo (ex: 6 Litros de xarope, 12 Porções). O sistema calculará o custo unitário exato por litro/kg/porção.
+                      </p>
                       <div className="grid grid-cols-2 gap-4">
                         <div className="space-y-1.5">
-                          <label className="text-xs font-medium text-slate-300">Quantidade Final</label>
+                          <label className="text-xs font-medium text-slate-300">Quantidade que Rende</label>
                           <input
                             type="number"
                             step="0.01"
+                            min="0.01"
                             value={rendimentoQtd}
                             onChange={(e) => setRendimentoQtd(e.target.value)}
-                            placeholder="Ex: 1.5"
-                            className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-emerald-500"
+                            placeholder="Ex: 6"
+                            className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-emerald-500 text-sm font-mono"
                           />
                         </div>
                         <div className="space-y-1.5">
@@ -1926,13 +2093,13 @@ export default function FichasTecnicasModule() {
                           <select
                             value={rendimentoUnidade}
                             onChange={(e) => setRendimentoUnidade(e.target.value)}
-                            className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-emerald-500"
+                            className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-emerald-500 text-sm"
                           >
                             <option value="l">Litro (L)</option>
                             <option value="kg">Quilograma (Kg)</option>
                             <option value="ml">Mililitro (ml)</option>
                             <option value="g">Grama (g)</option>
-                            <option value="un">Unidade (Un)</option>
+                            <option value="un">Unidade / Porção (Un)</option>
                             <option value="cx">Caixa (Cx)</option>
                           </select>
                         </div>
@@ -1965,13 +2132,19 @@ export default function FichasTecnicasModule() {
                   </div>
 
                   <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-center">
-                    {/* Pilar 1: Custo Total */}
+                    {/* Pilar 1: Custo */}
                     <div className="bg-slate-900/90 border border-slate-800 rounded-lg p-2.5">
-                      <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider block">Custo Total</span>
-                      <span className="text-base font-bold font-mono text-slate-200 mt-0.5 block">
-                        R$ {resumoModal.custoTotal.toFixed(2)}
+                      <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider block">
+                        {(tipo === 'insumo' || rendQtdAtualModal > 1) ? `Custo / ${rendimentoUnidade.toUpperCase()}` : "Custo Total"}
                       </span>
-                      <span className="text-[10px] text-slate-500">Soma dos insumos</span>
+                      <span className="text-base font-bold font-mono text-emerald-400 mt-0.5 block">
+                        R$ {((tipo === 'insumo' || rendQtdAtualModal > 1) ? custoUnitarioAtualModal : custoTotalAtualModal).toFixed(2)}
+                      </span>
+                      <span className="text-[10px] text-slate-500 block truncate">
+                        {(tipo === 'insumo' || rendQtdAtualModal > 1)
+                          ? `Total R$ ${custoTotalAtualModal.toFixed(2)} ÷ ${rendQtdAtualModal} ${rendimentoUnidade}`
+                          : "Soma dos insumos"}
+                      </span>
                     </div>
 
                     {/* Pilar 2: Preço de Venda */}

@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo } from "react";
 import { appDb } from "../firebase";
 import { useAuth, UserRole } from "../context/AuthContext";
 import { 
-  ShoppingCart, Plus, Trash2, CheckCircle2, Clock, AlertCircle, 
+  ShoppingCart, Plus, Trash2, CheckCircle2, Clock, AlertCircle, AlertTriangle,
   Send, ChefHat, Wine, ShieldCheck, Search, Check, 
   FileText, Copy, RefreshCw, ChevronDown, ChevronUp, 
   PackageCheck, DollarSign, Layers, Sparkles, MessageSquare, Shield
@@ -206,14 +206,18 @@ export default function GestaoDeComprasModule() {
       c => c.nome.toLowerCase().trim() === itemNome.toLowerCase().trim()
     );
 
+    const precoUnitario = (catItem && typeof catItem.ultimoPreco === "number" && !isNaN(catItem.ultimoPreco))
+      ? catItem.ultimoPreco
+      : 0;
+
     const novoItem: ItemRequisicao = {
       id: "it_" + Date.now() + "_" + Math.random().toString(36).substr(2, 4),
       nome: itemNome.trim().toUpperCase(),
-      unidade: itemUnidade.toUpperCase(),
+      unidade: (itemUnidade || "UN").toUpperCase(),
       quantidadeSolicitada: qtdNum,
       quantidadeAprovada: qtdNum, // Inicialmente igual à solicitada
-      ultimoPreco: catItem ? catItem.ultimoPreco : undefined,
-      observacao: itemObs.trim() || undefined
+      ultimoPreco: precoUnitario,
+      observacao: itemObs.trim() || ""
     };
 
     setItensRascunho(prev => [...prev, novoItem]);
@@ -242,17 +246,28 @@ export default function GestaoDeComprasModule() {
         return acc + (item.quantidadeSolicitada * (item.ultimoPreco || 0));
       }, 0);
 
-      const setorDestino = isChefCozinha ? "cozinha" : isChefBar ? "bar" : novoSetor;
+      const setorDestino = isChefCozinha ? "cozinha" : isChefBar ? "bar" : (novoSetor || "cozinha");
+
+      // Limpeza estrita garantindo que nenhum campo seja undefined no Firestore
+      const itensLimpos: ItemRequisicao[] = itensRascunho.map(item => ({
+        id: item.id || ("it_" + Date.now() + "_" + Math.random().toString(36).substr(2, 4)),
+        nome: (item.nome || "").trim().toUpperCase(),
+        unidade: (item.unidade || "UN").trim().toUpperCase(),
+        quantidadeSolicitada: Number(item.quantidadeSolicitada) || 1,
+        quantidadeAprovada: Number(item.quantidadeAprovada ?? item.quantidadeSolicitada) || 1,
+        ultimoPreco: typeof item.ultimoPreco === "number" && !isNaN(item.ultimoPreco) ? item.ultimoPreco : 0,
+        observacao: (item.observacao || "").trim()
+      }));
 
       const novaRequisicao: Omit<RequisicaoCompra, "id"> = {
         setor: setorDestino,
         solicitante: user?.displayName || user?.email || (isChefCozinha ? "Chef de Cozinha" : isChefBar ? "Chef de Bar" : "Solicitante"),
-        solicitanteId: user?.uid || "anon",
+        solicitanteId: user?.uid || "anon_" + Date.now(),
         dataCriacao: new Date().toISOString(),
         status: "pendente",
-        itens: itensRascunho,
-        observacoes: observacoesGerais.trim() || undefined,
-        valorTotalEstimado: valorTotalEstimado > 0 ? Number(valorTotalEstimado.toFixed(2)) : undefined
+        itens: itensLimpos,
+        observacoes: (observacoesGerais || "").trim(),
+        valorTotalEstimado: Number(valorTotalEstimado.toFixed(2)) || 0
       };
 
       await appDb.add("requisicoes", novaRequisicao);
@@ -314,13 +329,32 @@ export default function GestaoDeComprasModule() {
     }
   };
 
-  const handleExcluirRequisicao = async (id: string) => {
-    if (window.confirm("Deseja realmente excluir esta requisição?")) {
-      try {
-        await appDb.delete("requisicoes", id);
-      } catch (err: any) {
-        alert("Erro ao excluir: " + err.message);
-      }
+  // Estados e controle de exclusão segura sem window.confirm
+  const [requisicaoParaExcluir, setRequisicaoParaExcluir] = useState<RequisicaoCompra | null>(null);
+  const [excluindoLoad, setExcluindoLoad] = useState(false);
+  const [toastFeedback, setToastFeedback] = useState<string | null>(null);
+
+  const handleConfirmarExclusao = async () => {
+    if (!requisicaoParaExcluir || !requisicaoParaExcluir.id) return;
+    const idParaExcluir = requisicaoParaExcluir.id;
+    setExcluindoLoad(true);
+
+    try {
+      // 1. Atualização otimista imediata na interface
+      setRequisicoes(prev => prev.filter(r => r.id !== idParaExcluir));
+      setRequisicaoParaExcluir(null);
+
+      // 2. Exclusão definitiva no Firestore
+      await appDb.delete("requisicoes", idParaExcluir);
+
+      // 3. Feedback visual
+      setToastFeedback("Requisição de compras excluída com sucesso!");
+      setTimeout(() => setToastFeedback(null), 3500);
+    } catch (err: any) {
+      console.error("Erro ao excluir requisição:", err);
+      alert("Erro ao excluir do banco de dados: " + (err.message || "Tente novamente."));
+    } finally {
+      setExcluindoLoad(false);
     }
   };
 
@@ -787,16 +821,29 @@ export default function GestaoDeComprasModule() {
                           Enviado em {dataFormatada} • {req.itens.length} item(ns)
                         </span>
 
-                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border uppercase ${
-                          req.status === "pendente" ? "bg-amber-500/10 text-amber-400 border-amber-500/30" :
-                          req.status === "aprovado" ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/30" :
-                          req.status === "comprado" ? "bg-blue-500/10 text-blue-400 border-blue-500/30" :
-                          "bg-slate-800 text-slate-300 border-slate-700"
-                        }`}>
-                          {req.status === "pendente" ? "⏳ Aguardando Gerência" :
-                           req.status === "aprovado" ? "✅ Aprovado pela Gerência" :
-                           req.status === "comprado" ? "📦 Comprado" : req.status.toUpperCase()}
-                        </span>
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border uppercase ${
+                            req.status === "pendente" ? "bg-amber-500/10 text-amber-400 border-amber-500/30" :
+                            req.status === "aprovado" ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/30" :
+                            req.status === "comprado" ? "bg-blue-500/10 text-blue-400 border-blue-500/30" :
+                            "bg-slate-800 text-slate-300 border-slate-700"
+                          }`}>
+                            {req.status === "pendente" ? "⏳ Aguardando Gerência" :
+                             req.status === "aprovado" ? "✅ Aprovado pela Gerência" :
+                             req.status === "comprado" ? "📦 Comprado" : req.status.toUpperCase()}
+                          </span>
+
+                          {/* Botão para o Chef excluir seu pedido de teste ou pendente */}
+                          <button
+                            type="button"
+                            onClick={() => setRequisicaoParaExcluir(req)}
+                            className="min-h-[36px] px-2.5 py-1 text-rose-400 hover:text-white hover:bg-rose-500/20 border border-rose-500/30 rounded-lg text-xs font-semibold flex items-center gap-1 transition-colors cursor-pointer"
+                            title="Excluir este pedido"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                            <span>Excluir</span>
+                          </button>
+                        </div>
                       </div>
 
                       {/* Lista resumida de itens do pedido */}
@@ -1079,14 +1126,29 @@ export default function GestaoDeComprasModule() {
                               </div>
                             ) : null}
 
-                            <button
-                              type="button"
-                              onClick={(e) => { e.stopPropagation(); setRequisicaoAbertaId(isAberta ? null : req.id!); }}
-                              className="p-2 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800 min-h-[44px] min-w-[44px] flex items-center justify-center"
-                              title="Expandir detalhes"
-                            >
-                              {isAberta ? <ChevronUp className="h-5 w-5" /> : <ChevronDown className="h-5 w-5" />}
-                            </button>
+                            <div className="flex items-center gap-1.5">
+                              {/* Botão de Excluir Requisição direto no card */}
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setRequisicaoParaExcluir(req);
+                                }}
+                                className="p-2 text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 rounded-lg min-h-[44px] min-w-[44px] flex items-center justify-center transition-colors cursor-pointer"
+                                title="Excluir requisição"
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </button>
+
+                              <button
+                                type="button"
+                                onClick={(e) => { e.stopPropagation(); setRequisicaoAbertaId(isAberta ? null : req.id!); }}
+                                className="p-2 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800 min-h-[44px] min-w-[44px] flex items-center justify-center cursor-pointer"
+                                title="Expandir detalhes"
+                              >
+                                {isAberta ? <ChevronUp className="h-5 w-5" /> : <ChevronDown className="h-5 w-5" />}
+                              </button>
+                            </div>
                           </div>
                         </div>
 
@@ -1223,10 +1285,11 @@ export default function GestaoDeComprasModule() {
 
                                 <button
                                   type="button"
-                                  onClick={() => handleExcluirRequisicao(req.id!)}
-                                  className="min-h-[44px] px-3 py-1.5 text-rose-400 hover:bg-rose-500/10 rounded-lg text-xs font-medium flex items-center gap-1.5 transition-colors"
+                                  onClick={() => setRequisicaoParaExcluir(req)}
+                                  className="min-h-[44px] px-3.5 py-1.5 text-rose-400 hover:text-white hover:bg-rose-500/20 border border-rose-500/30 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer"
+                                  title="Excluir requisição"
                                 >
-                                  <Trash2 className="h-4 w-4" /> Excluir
+                                  <Trash2 className="h-4 w-4" /> Excluir Pedido
                                 </button>
                               </div>
 
@@ -1430,6 +1493,83 @@ export default function GestaoDeComprasModule() {
             </div>
           )}
 
+        </div>
+      )}
+
+      {/* TOAST FLUTUANTE DE FEEDBACK */}
+      {toastFeedback && (
+        <div className="fixed bottom-6 right-6 z-50 bg-slate-900 border border-emerald-500/40 text-emerald-300 px-4 py-3 rounded-xl shadow-2xl flex items-center gap-2.5 text-xs animate-in slide-in-from-bottom duration-200">
+          <CheckCircle2 className="h-4 w-4 text-emerald-400 shrink-0" />
+          <span className="font-medium">{toastFeedback}</span>
+        </div>
+      )}
+
+      {/* MODAL RESPONSIVO DE CONFIRMAÇÃO DE EXCLUSÃO (Sem depender de window.confirm) */}
+      {requisicaoParaExcluir && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-in fade-in duration-150">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 max-w-md w-full space-y-4 shadow-2xl">
+            <div className="flex items-center gap-3 text-rose-400">
+              <div className="p-2.5 rounded-xl bg-rose-500/10 shrink-0">
+                <AlertTriangle className="h-6 w-6 text-rose-400" />
+              </div>
+              <div>
+                <h3 className="text-base font-bold text-white">Excluir Requisição?</h3>
+                <p className="text-xs text-slate-400">Esta ação não poderá ser desfeita</p>
+              </div>
+            </div>
+
+            <div className="bg-slate-950 p-3.5 rounded-xl border border-slate-800/80 text-xs space-y-1.5 text-slate-300">
+              <p>
+                <strong className="text-slate-400">Setor:</strong>{" "}
+                <span className="uppercase text-white font-bold">{requisicaoParaExcluir.setor}</span>
+              </p>
+              <p>
+                <strong className="text-slate-400">Solicitante:</strong>{" "}
+                <span className="text-slate-200">{requisicaoParaExcluir.solicitante}</span>
+              </p>
+              <p>
+                <strong className="text-slate-400">Itens:</strong>{" "}
+                <span className="text-cyan-400 font-bold">{requisicaoParaExcluir.itens.length} produto(s)</span>
+              </p>
+              <p>
+                <strong className="text-slate-400">Data de Envio:</strong>{" "}
+                <span className="text-slate-300">
+                  {new Date(requisicaoParaExcluir.dataCriacao).toLocaleString("pt-BR")}
+                </span>
+              </p>
+            </div>
+
+            <p className="text-xs text-slate-400 leading-relaxed">
+              Deseja remover permanentemente esta requisição de compras do banco de dados?
+            </p>
+
+            <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-800">
+              <button
+                type="button"
+                onClick={() => setRequisicaoParaExcluir(null)}
+                disabled={excluindoLoad}
+                className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-400 hover:text-white hover:bg-slate-800 min-h-[44px] transition-colors"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmarExclusao}
+                disabled={excluindoLoad}
+                className="px-5 py-2 rounded-xl text-xs font-bold bg-rose-600 hover:bg-rose-500 disabled:opacity-50 text-white min-h-[44px] flex items-center gap-2 shadow-lg shadow-rose-600/20 transition-all cursor-pointer"
+              >
+                {excluindoLoad ? (
+                  <>
+                    <RefreshCw className="h-4 w-4 animate-spin" /> Excluindo...
+                  </>
+                ) : (
+                  <>
+                    <Trash2 className="h-4 w-4" /> Sim, Excluir Pedido
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
