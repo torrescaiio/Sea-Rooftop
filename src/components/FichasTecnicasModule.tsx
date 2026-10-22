@@ -4,7 +4,7 @@ import {
   Search, Plus, ChefHat, Trash2, FileText, Check, Coffee, CheckSquare, 
   Square, FlaskConical, User as UserIcon, Package, ChevronDown, ChevronUp, 
   Sparkles, RefreshCw, AlertCircle, TrendingUp, DollarSign, AlertTriangle, X, ShoppingCart,
-  ArrowLeftRight, RotateCcw, Scale
+  ArrowLeftRight, RotateCcw, Scale, Pencil
 } from "lucide-react";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
@@ -181,8 +181,27 @@ export const findCatalogoItem = (nome: string, catalogo: InsumoCatalogo[]): Insu
   const normalizedMatch = catalogo.find(c => normalizeText(c.nome) === norm);
   if (normalizedMatch) return normalizedMatch;
 
+  // Proteção contra falsos positivos para termos comuns / genéricos
+  // Água, gelo, sal, etc. não devem herdar custos de "água tônica", "água de coco", "gelo seco", etc.
+  const commonGenericTerms = ['agua', 'gelo', 'sal', 'acucar', 'cafe'];
+  if (commonGenericTerms.includes(norm)) {
+    return undefined;
+  }
+
   // 3. Busca por inclusão de palavras-chave significativas
   const words = norm.split(/\s+/).filter(w => w.length > 2);
+
+  // Se for apenas uma palavra curta (ex: "agua", "copo"), evitar match em "agua tonica", "copo descartavel 500ml", etc.
+  if (words.length === 1 && words[0].length < 6) {
+    const singleMatch = catalogo.find(c => {
+      const cNorm = normalizeText(c.nome);
+      const cWords = cNorm.split(/\s+/);
+      return cWords.includes(words[0]) && cWords.length <= 2;
+    });
+    if (singleMatch) return singleMatch;
+    return undefined;
+  }
+
   if (words.length > 0) {
     const wordMatch = catalogo.find(c => {
       const cNorm = normalizeText(c.nome);
@@ -623,6 +642,14 @@ export default function FichasTecnicasModule() {
     novaUnidade: string;
   }>({ fator: "", novaUnidade: "KG" });
 
+  // Estado para cadastro e edição de matérias-primas (ex: Água com custo zero)
+  const [showMateriaModal, setShowMateriaModal] = useState(false);
+  const [editingMateriaId, setEditingMateriaId] = useState<string | null>(null);
+  const [materiaNome, setMateriaNome] = useState("");
+  const [materiaCusto, setMateriaCusto] = useState<string>("0");
+  const [materiaUnidade, setMateriaUnidade] = useState<string>("L");
+  const [savingMateria, setSavingMateria] = useState(false);
+
   // Helper para inferir unidade de medida a partir do nome do insumo
   const inferirUnidade = (nomeItem: string): string => {
     const s = nomeItem.toUpperCase();
@@ -775,14 +802,27 @@ export default function FichasTecnicasModule() {
     setRecipiente(ficha.recipiente || "");
     setConversaoAbertaIndex(null);
     setIngredientes(ficha.ingredientes.map(i => {
+      const hasSavedCusto = i.custoCompra !== undefined && i.custoCompra !== null && i.custoCompra.toString().trim() !== '';
+      const matMatch = materiasPrimas.find(m => normalizeText(m.nome) === normalizeText(i.nome));
       const catMatch = findCatalogoItem(i.nome, catalogoInsumos);
-      // Se já estava convertido, preserva a unidade e o custo convertido
       const isConvertido = i.isConvertido || (typeof i.fatorConversao === 'number' && i.fatorConversao > 0);
+      
+      let finalCustoCompra = i.custoCompra;
+      if (!hasSavedCusto) {
+        if (matMatch && typeof matMatch.custo === 'number') {
+          finalCustoCompra = matMatch.custo.toString();
+        } else if (catMatch && catMatch.custo >= 0) {
+          finalCustoCompra = catMatch.custo.toFixed(2);
+        } else {
+          finalCustoCompra = '';
+        }
+      }
+
       return {
         ...i,
-        origem: i.origem || (i.isCadastrado ? 'insumo' : 'catalogo'),
-        unidadeCompra: i.unidadeCompra || catMatch?.um || '',
-        custoCompra: i.custoCompra || (catMatch && catMatch.custo > 0 ? catMatch.custo.toFixed(2) : ''),
+        origem: i.origem || (i.isCadastrado ? 'insumo' : (matMatch ? 'materia_prima' : 'catalogo')),
+        unidadeCompra: i.unidadeCompra || matMatch?.unidade || catMatch?.um || '',
+        custoCompra: finalCustoCompra,
         fatorConversao: i.fatorConversao,
         unidadeOriginalCompra: i.unidadeOriginalCompra || (catMatch ? catMatch.um : undefined),
         custoOriginalCompra: i.custoOriginalCompra ?? (catMatch && catMatch.custo > 0 ? catMatch.custo : undefined),
@@ -849,6 +889,68 @@ export default function FichasTecnicasModule() {
     }
   };
 
+  const handleOpenAddMateria = () => {
+    setEditingMateriaId(null);
+    setMateriaNome("");
+    setMateriaCusto("0");
+    setMateriaUnidade("L");
+    setShowMateriaModal(true);
+  };
+
+  const handleEditMateria = (mat: MateriaPrima) => {
+    setEditingMateriaId(mat.id || null);
+    setMateriaNome(mat.nome);
+    setMateriaCusto(mat.custo !== undefined ? mat.custo.toString() : "0");
+    setMateriaUnidade(mat.unidade || "L");
+    setShowMateriaModal(true);
+  };
+
+  const handleSaveMateria = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!materiaNome.trim()) return;
+    setSavingMateria(true);
+    try {
+      const parsedCost = parseFloat(materiaCusto.replace(',', '.')) || 0;
+      const data = {
+        nome: materiaNome.trim(),
+        custo: Math.max(0, parsedCost),
+        unidade: (materiaUnidade.trim() || 'un').toUpperCase()
+      };
+
+      if (editingMateriaId) {
+        await appDb.update("materias_primas", editingMateriaId, data);
+      } else {
+        await appDb.add("materias_primas", data);
+      }
+      setShowMateriaModal(false);
+    } catch (err) {
+      console.error("Erro ao salvar matéria-prima:", err);
+    } finally {
+      setSavingMateria(false);
+    }
+  };
+
+  const handleDeleteMateria = async (id?: string) => {
+    if (!id) return;
+    try {
+      await appDb.delete("materias_primas", id);
+    } catch (err) {
+      console.error("Erro ao excluir matéria-prima:", err);
+    }
+  };
+
+  const handleSeedAgua = async () => {
+    try {
+      await appDb.add("materias_primas", {
+        nome: "Água",
+        custo: 0,
+        unidade: "L"
+      });
+    } catch (err) {
+      console.error("Erro ao cadastrar água:", err);
+    }
+  };
+
   // Cálculo individual de custo por ingrediente com priorização inteligente e tolerância
   const calcularCustoIngredienteInfo = (
     ing: Ingrediente, 
@@ -871,18 +973,53 @@ export default function FichasTecnicasModule() {
     }
 
     if (!val || isNaN(val) || val <= 0) {
-      if (typeof ing.custoCalculado === 'number' && ing.custoCalculado > 0) {
+      if (typeof ing.custoCalculado === 'number' && ing.custoCalculado >= 0) {
         return { custo: ing.custoCalculado, isDynamic: false, origemNome: 'Snapshot Firebase' };
       }
-      if (ing.custoCompra && parseFloat(ing.custoCompra.replace(',', '.')) > 0) {
-        const manual = parseFloat(ing.custoCompra.replace(',', '.'));
-        return { custo: manual, isDynamic: false, unitCost: manual, unit: ing.unidadeCompra || 'un', origemNome: 'Custo Manual' };
+      if (ing.custoCompra !== undefined && ing.custoCompra !== null && ing.custoCompra.toString().trim() !== '') {
+        const manual = parseFloat(ing.custoCompra.toString().replace(',', '.'));
+        if (!isNaN(manual) && manual >= 0) {
+          return { custo: manual, isDynamic: false, unitCost: manual, unit: ing.unidadeCompra || 'un', origemNome: manual === 0 ? 'Custo Zero' : 'Custo Manual' };
+        }
       }
       return { custo: 0, isDynamic: false };
     }
 
-    // 1. Sub-receita produzida (Insumo ou preparo próprio cadastrado na pasta de fichas)
     const normIngNome = normalizeText(ing.nome);
+
+    // 1. Ingrediente com Desmembramento/Conversão de Fardo/Caixa (ex: R$ 47.30 / 30 = R$ 1.58 / KG)
+    if (ing.isConvertido && ing.custoCompra !== undefined && ing.custoCompra !== null && ing.custoCompra.toString().trim() !== '') {
+      const baseCost = parseFloat(ing.custoCompra.toString().replace(',', '.'));
+      if (!isNaN(baseCost) && baseCost >= 0) {
+        const baseUnit = (ing.unidadeCompra || 'un').toLowerCase();
+        const multiplier = getUnitMultiplier(unit || baseUnit, baseUnit, ing.nome, val);
+        return {
+          custo: val * multiplier * baseCost,
+          isDynamic: false,
+          unitCost: baseCost,
+          unit: ing.unidadeCompra || 'un',
+          origemNome: `Convertido (${ing.unidadeOriginalCompra || 'FD'} → ${ing.unidadeCompra || 'KG'})`
+        };
+      }
+    }
+
+    // 2. Custo unitário manual salvo no próprio ingrediente (Prioridade MÁXIMA - respeita o que o usuário definiu, inclusive Custo R$ 0,00)
+    if (ing.custoCompra !== undefined && ing.custoCompra !== null && ing.custoCompra.toString().trim() !== '') {
+      const baseCost = parseFloat(ing.custoCompra.toString().replace(',', '.'));
+      if (!isNaN(baseCost) && baseCost >= 0) {
+        const baseUnit = (ing.unidadeCompra || 'un').toLowerCase();
+        const multiplier = getUnitMultiplier(unit || baseUnit, baseUnit, ing.nome, val);
+        return {
+          custo: val * multiplier * baseCost,
+          isDynamic: false,
+          unitCost: baseCost,
+          unit: ing.unidadeCompra || 'un',
+          origemNome: baseCost === 0 ? 'Custo Zero (Cadastrado/Manual)' : 'Custo Unitário Definido'
+        };
+      }
+    }
+
+    // 3. Sub-receita produzida (Insumo ou preparo próprio cadastrado na pasta de fichas)
     const subFicha = fichas.find(f => normalizeText(f.nome) === normIngNome && f.tipo === 'insumo') ||
                      fichas.find(f => normalizeText(f.nome) === normIngNome) ||
                      fichas.find(f => {
@@ -893,37 +1030,35 @@ export default function FichasTecnicasModule() {
     if (subFicha) {
       const subCustoTotal = calcularCustoFicha(subFicha, visited);
       const rendInfo = getFichaRendimentoInfo(subFicha);
-      const subCustoUnitario = subCustoTotal / rendInfo.qtd;
+      const subCustoUnitario = rendInfo.qtd > 0 ? subCustoTotal / rendInfo.qtd : subCustoTotal;
       const multiplier = getUnitMultiplier(unit || rendInfo.unidade, rendInfo.unidade, ing.nome, val);
 
-      if (subCustoTotal > 0 || subCustoUnitario > 0) {
-        return {
-          custo: (val * multiplier) * subCustoUnitario,
-          isDynamic: false,
-          unitCost: subCustoUnitario,
-          unit: rendInfo.unidade,
-          origemNome: subFicha.tipo === 'insumo' ? 'Insumo / Pasta' : 'Receita Própria'
-        };
-      }
-    }
-
-    // 2. Ingrediente com Desmembramento/Conversão de Fardo/Caixa (ex: R$ 47.30 / 30 = R$ 1.58 / KG)
-    if (ing.isConvertido && ing.custoCompra && parseFloat(ing.custoCompra.replace(',', '.')) > 0) {
-      const baseCost = parseFloat(ing.custoCompra.replace(',', '.'));
-      const baseUnit = (ing.unidadeCompra || 'un').toLowerCase();
-      const multiplier = getUnitMultiplier(unit || baseUnit, baseUnit, ing.nome, val);
       return {
-        custo: val * multiplier * baseCost,
+        custo: (val * multiplier) * subCustoUnitario,
         isDynamic: false,
-        unitCost: baseCost,
-        unit: ing.unidadeCompra || 'un',
-        origemNome: `Convertido (${ing.unidadeOriginalCompra || 'FD'} → ${ing.unidadeCompra || 'KG'})`
+        unitCost: subCustoUnitario,
+        unit: rendInfo.unidade,
+        origemNome: subFicha.tipo === 'insumo' ? 'Insumo / Pasta' : 'Receita Própria'
       };
     }
 
-    // 3. Preço dinâmico da planilha (Catálogo ou Compras/NF)
+    // 4. Matérias-Primas cadastradas no Firestore (Prioridade sobre planilha, aceitando custo 0)
+    const mat = materiasPrimas.find(m => normalizeText(m.nome) === normIngNome);
+    if (mat && typeof mat.custo === 'number' && mat.custo >= 0) {
+      const baseUnit = (mat.unidade || 'un').toLowerCase();
+      const multiplier = getUnitMultiplier(unit || baseUnit, baseUnit, ing.nome, val);
+      return {
+        custo: val * multiplier * mat.custo,
+        isDynamic: false,
+        unitCost: mat.custo,
+        unit: mat.unidade,
+        origemNome: mat.custo === 0 ? 'Matéria-Prima (Custo Zero)' : 'Matéria-Prima Cadastrada'
+      };
+    }
+
+    // 5. Preço dinâmico da planilha (Catálogo ou Compras/NF)
     const catMatch = findCatalogoItem(ing.nome, catalogoInsumos);
-    if (catMatch && typeof catMatch.custo === 'number' && catMatch.custo > 0) {
+    if (catMatch && typeof catMatch.custo === 'number' && catMatch.custo >= 0) {
       const baseUnit = (catMatch.um || 'un').toLowerCase().trim();
       const multiplier = getUnitMultiplier(unit || baseUnit, baseUnit, ing.nome, val);
       const custoFinal = val * multiplier * catMatch.custo;
@@ -936,36 +1071,8 @@ export default function FichasTecnicasModule() {
       };
     }
 
-    // 4. Matérias-Primas cadastradas no Firestore
-    const mat = materiasPrimas.find(m => normalizeText(m.nome) === normalizeText(ing.nome));
-    if (mat && mat.custo > 0) {
-      const baseUnit = (mat.unidade || 'un').toLowerCase();
-      const multiplier = getUnitMultiplier(unit || baseUnit, baseUnit, ing.nome, val);
-      return {
-        custo: val * multiplier * mat.custo,
-        isDynamic: false,
-        unitCost: mat.custo,
-        unit: mat.unidade,
-        origemNome: 'Matéria-Prima Cadastrada'
-      };
-    }
-
-    // 5. Custo unitário manual salvo no próprio ingrediente
-    if (ing.custoCompra && parseFloat(ing.custoCompra.replace(',', '.')) > 0) {
-      const baseCost = parseFloat(ing.custoCompra.replace(',', '.'));
-      const baseUnit = (ing.unidadeCompra || 'un').toLowerCase();
-      const multiplier = getUnitMultiplier(unit || baseUnit, baseUnit, ing.nome, val);
-      return {
-        custo: val * multiplier * baseCost,
-        isDynamic: false,
-        unitCost: baseCost,
-        unit: ing.unidadeCompra || 'un',
-        origemNome: 'Custo Manual'
-      };
-    }
-
     // 6. Snapshot salvo anteriormente no Firebase
-    if (typeof ing.custoCalculado === 'number' && ing.custoCalculado > 0) {
+    if (typeof ing.custoCalculado === 'number' && ing.custoCalculado >= 0) {
       return {
         custo: ing.custoCalculado,
         isDynamic: false,
@@ -974,7 +1081,7 @@ export default function FichasTecnicasModule() {
     }
 
     // 7. Custo legado direto
-    if (typeof (ing as any).custo === 'number' && (ing as any).custo > 0) {
+    if (typeof (ing as any).custo === 'number' && (ing as any).custo >= 0) {
       return {
         custo: (ing as any).custo,
         isDynamic: false,
@@ -1025,7 +1132,23 @@ export default function FichasTecnicasModule() {
       nomesAdicionados.add(norm);
     });
 
-    // 2. Insumos da Planilha (Catálogo e Compras integrados)
+    // 2. Matérias-Primas do Firebase (Prioritário sobre itens da planilha)
+    materiasPrimas.forEach(mat => {
+      const norm = normalizeText(mat.nome);
+      if (!nomesAdicionados.has(norm)) {
+        lista.push({
+          id: mat.id,
+          nome: mat.nome,
+          origem: 'materia_prima',
+          um: mat.unidade || 'un',
+          custo: typeof mat.custo === 'number' ? mat.custo : 0,
+          labelOrigem: mat.custo === 0 ? 'Matéria-Prima (Custo Zero)' : 'Matéria-Prima'
+        });
+        nomesAdicionados.add(norm);
+      }
+    });
+
+    // 3. Insumos da Planilha (Catálogo e Compras integrados)
     catalogoInsumos.forEach(item => {
       const norm = normalizeText(item.nome);
       if (!nomesAdicionados.has(norm)) {
@@ -1036,22 +1159,6 @@ export default function FichasTecnicasModule() {
           custo: item.custo || 0,
           labelOrigem: item.origemPlanilha === 'compras' ? 'Planilha Compras' : 'Planilha',
           fornecedor: item.fornecedor
-        });
-        nomesAdicionados.add(norm);
-      }
-    });
-
-    // 3. Matérias-Primas do Firebase
-    materiasPrimas.forEach(mat => {
-      const norm = normalizeText(mat.nome);
-      if (!nomesAdicionados.has(norm)) {
-        lista.push({
-          id: mat.id,
-          nome: mat.nome,
-          origem: 'materia_prima',
-          um: mat.unidade || 'un',
-          custo: mat.custo || 0,
-          labelOrigem: 'Matéria-Prima'
         });
         nomesAdicionados.add(norm);
       }
@@ -1080,10 +1187,10 @@ export default function FichasTecnicasModule() {
       ...newIngredientes[index],
       nome: item.nome,
       unidadeCompra: item.um || 'UN',
-      custoCompra: item.custo > 0 ? item.custo.toFixed(2) : '0',
+      custoCompra: item.custo >= 0 ? item.custo.toString() : '0',
       origem: item.origem,
       isCadastrado: item.origem === 'insumo',
-      custoOriginalCompra: item.custo > 0 ? item.custo : undefined,
+      custoOriginalCompra: item.custo >= 0 ? item.custo : 0,
       unidadeOriginalCompra: item.um || 'UN',
       fatorConversao: undefined,
       isConvertido: false
@@ -1102,7 +1209,9 @@ export default function FichasTecnicasModule() {
       const match = todasSugestoes.find(s => normalizeText(s.nome) === normalizeText(value));
       if (match) {
         if (!newIngredientes[index].unidadeCompra) newIngredientes[index].unidadeCompra = match.um;
-        if (!newIngredientes[index].custoCompra && match.custo > 0) newIngredientes[index].custoCompra = match.custo.toFixed(2);
+        if (newIngredientes[index].custoCompra === '' || newIngredientes[index].custoCompra === undefined) {
+          newIngredientes[index].custoCompra = typeof match.custo === 'number' && match.custo >= 0 ? match.custo.toString() : '0';
+        }
         newIngredientes[index].origem = match.origem;
       }
       newIngredientes[index].isConvertido = false;
@@ -1890,29 +1999,107 @@ export default function FichasTecnicasModule() {
 
         {filterTipo === 'materias_primas' && (
           <div className="p-6">
-            <div className="flex justify-between items-center mb-6">
+            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
               <div>
-                <h3 className="text-lg font-bold text-white">Catálogo de Matérias-Primas</h3>
-                <p className="text-sm text-slate-400">Ingredientes base cadastrados com custo unitário padrão.</p>
+                <h3 className="text-lg font-bold text-white flex items-center gap-2">
+                  <Package className="h-5 w-5 text-emerald-400" />
+                  Catálogo de Matérias-Primas (Precedência Direta)
+                </h3>
+                <p className="text-sm text-slate-400">
+                  Ingredientes base cadastrados que têm precedência máxima sobre planilhas. Itens com Custo R$ 0,00 (como Água) são calculados como gratuitos.
+                </p>
               </div>
+              <button
+                type="button"
+                onClick={handleOpenAddMateria}
+                className="bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors flex items-center gap-2 shadow-lg shadow-emerald-600/20"
+              >
+                <Plus className="h-4 w-4" /> Nova Matéria-Prima
+              </button>
             </div>
+
+            {/* Sugestão de Água Gratuita se ainda não cadastrada */}
+            {!materiasPrimas.some(m => normalizeText(m.nome) === 'agua') && (
+              <div className="mb-6 p-4 bg-emerald-500/10 border border-emerald-500/30 rounded-xl flex items-center justify-between flex-wrap gap-3">
+                <div className="flex items-center gap-3">
+                  <Sparkles className="h-5 w-5 text-emerald-400 shrink-0" />
+                  <div>
+                    <h4 className="text-sm font-semibold text-emerald-300">Cadastrar Água com Custo R$ 0,00</h4>
+                    <p className="text-xs text-slate-300">
+                      Garante que a água utilizada nas receitas e xaropes seja calculada com custo zero (grátis), sem puxar outros itens.
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleSeedAgua}
+                  className="bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-medium px-3.5 py-1.5 rounded-lg flex items-center gap-1.5 transition-colors shadow"
+                >
+                  <Plus className="h-3.5 w-3.5" /> Adicionar Água (R$ 0,00/L)
+                </button>
+              </div>
+            )}
 
             {materiasPrimas.length === 0 ? (
               <div className="text-center py-12 text-slate-500">
                 <Package className="h-12 w-12 mx-auto mb-3 opacity-20" />
                 <p>Nenhuma matéria-prima cadastrada.</p>
+                <button
+                  type="button"
+                  onClick={handleOpenAddMateria}
+                  className="mt-3 text-emerald-400 hover:underline text-sm inline-flex items-center gap-1"
+                >
+                  <Plus className="h-4 w-4" /> Cadastrar Primeira Matéria-Prima
+                </button>
               </div>
             ) : (
               <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-                {materiasPrimas.map((mat) => (
-                  <div key={mat.id || mat.nome} className="bg-slate-800/50 border border-slate-700/60 rounded-xl p-4">
-                    <span className="text-xs text-slate-400 block mb-1 font-mono uppercase">{mat.unidade}</span>
-                    <h4 className="font-semibold text-white truncate text-base">{mat.nome}</h4>
-                    <p className="text-emerald-400 font-mono font-bold text-lg mt-2">
-                      R$ {mat.custo.toFixed(2)} <span className="text-xs font-normal text-slate-400">/{mat.unidade}</span>
-                    </p>
-                  </div>
-                ))}
+                {materiasPrimas.map((mat) => {
+                  const isZeroCost = mat.custo === 0;
+                  return (
+                    <div key={mat.id || mat.nome} className="bg-slate-800/50 border border-slate-700/60 rounded-xl p-4 flex flex-col justify-between hover:border-slate-600 transition-colors">
+                      <div>
+                        <div className="flex items-center justify-between gap-2 mb-2">
+                          <span className="text-xs text-slate-400 font-mono uppercase bg-slate-900 px-2 py-0.5 rounded border border-slate-700/50">
+                            {mat.unidade}
+                          </span>
+                          {isZeroCost ? (
+                            <span className="text-[10px] font-bold text-emerald-400 bg-emerald-500/10 border border-emerald-500/30 px-2 py-0.5 rounded-full">
+                              Custo Zero (Grátis)
+                            </span>
+                          ) : (
+                            <span className="text-[10px] text-slate-400 bg-slate-700/50 px-2 py-0.5 rounded-full">
+                              Matéria-Prima
+                            </span>
+                          )}
+                        </div>
+                        <h4 className="font-semibold text-white truncate text-base" title={mat.nome}>{mat.nome}</h4>
+                        <p className={`font-mono font-bold text-lg mt-2 ${isZeroCost ? "text-slate-400" : "text-emerald-400"}`}>
+                          R$ {mat.custo.toFixed(2)} <span className="text-xs font-normal text-slate-400">/{mat.unidade}</span>
+                        </p>
+                      </div>
+
+                      <div className="flex items-center justify-end gap-1.5 mt-4 pt-3 border-t border-slate-700/50">
+                        <button
+                          type="button"
+                          onClick={() => handleEditMateria(mat)}
+                          className="p-1.5 text-slate-400 hover:text-emerald-400 hover:bg-slate-700/60 rounded-lg transition-colors"
+                          title="Editar Matéria-Prima"
+                        >
+                          <Pencil className="h-4 w-4" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteMateria(mat.id)}
+                          className="p-1.5 text-slate-400 hover:text-rose-400 hover:bg-slate-700/60 rounded-lg transition-colors"
+                          title="Excluir Matéria-Prima"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
             )}
           </div>
@@ -2475,6 +2662,99 @@ export default function FichasTecnicasModule() {
                   className="min-h-[44px] px-6 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-sm font-medium transition-colors shadow-lg shadow-emerald-500/20"
                 >
                   Salvar Ficha
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL PARA ADICIONAR / EDITAR MATÉRIA-PRIMA */}
+      {showMateriaModal && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-md p-6 shadow-2xl animate-in fade-in zoom-in-95 duration-150">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-lg font-bold text-white flex items-center gap-2">
+                <Package className="h-5 w-5 text-emerald-500" />
+                {editingMateriaId ? "Editar Matéria-Prima" : "Nova Matéria-Prima"}
+              </h3>
+              <button
+                type="button"
+                onClick={() => setShowMateriaModal(false)}
+                className="text-slate-400 hover:text-white p-1 rounded-lg"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveMateria} className="space-y-4">
+              <div>
+                <label className="text-xs font-medium text-slate-300 block mb-1">
+                  Nome da Matéria-Prima
+                </label>
+                <input
+                  type="text"
+                  required
+                  placeholder="Ex: Água, Gelo filtrado, Sal..."
+                  value={materiaNome}
+                  onChange={(e) => setMateriaNome(e.target.value)}
+                  className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-emerald-500 text-sm"
+                  autoFocus
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs font-medium text-slate-300 block mb-1">
+                    Custo Unitário (R$)
+                  </label>
+                  <input
+                    type="number"
+                    step="0.0001"
+                    min="0"
+                    required
+                    placeholder="0.00"
+                    value={materiaCusto}
+                    onChange={(e) => setMateriaCusto(e.target.value)}
+                    className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white font-mono focus:outline-none focus:border-emerald-500 text-sm"
+                  />
+                  <span className="text-[10px] text-slate-500 mt-1 block">Para água/grátis, use 0</span>
+                </div>
+
+                <div>
+                  <label className="text-xs font-medium text-slate-300 block mb-1">
+                    Unidade de Medida
+                  </label>
+                  <select
+                    value={materiaUnidade}
+                    onChange={(e) => setMateriaUnidade(e.target.value)}
+                    className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-emerald-500 text-sm"
+                  >
+                    <option value="L">Litro (L)</option>
+                    <option value="KG">Quilograma (KG)</option>
+                    <option value="ML">Mililitro (ML)</option>
+                    <option value="G">Grama (G)</option>
+                    <option value="UN">Unidade (UN)</option>
+                    <option value="CX">Caixa (CX)</option>
+                    <option value="DOSE">Dose (DOSE)</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="flex justify-end gap-2 pt-4 border-t border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => setShowMateriaModal(false)}
+                  className="px-4 py-2 text-sm text-slate-300 hover:text-white"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={savingMateria}
+                  className="px-5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-sm font-medium transition-colors disabled:opacity-50 shadow-lg shadow-emerald-600/20"
+                >
+                  {savingMateria ? "Salvando..." : "Salvar"}
                 </button>
               </div>
             </form>
