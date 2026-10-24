@@ -361,6 +361,21 @@ export const alertaQuantidade = (val: number, unit: string): string | null => {
   return null;
 };
 
+// Sugere a quantidade corrigida trocando só a unidade (ex.: "0,005ml" → "0,005l"). null se não houver sugestão.
+export const sugestaoQuantidade = (quantidade: string): string | null => {
+  const m = (quantidade || '').trim().match(/^([\d.,]+)\s*(.*)$/);
+  if (!m) return null;
+  const num = m[1];
+  const val = parseFloat(num.replace(',', '.'));
+  const u = m[2].toLowerCase().trim();
+  if (isNaN(val) || !alertaQuantidade(val, u)) return null;
+  if (VOL_ML.includes(u)) return `${num}l`;
+  if (MASS_G.includes(u)) return `${num}kg`;
+  if (VOL_L.includes(u)) return `${num}ml`;
+  if (MASS_KG.includes(u)) return `${num}g`;
+  return null;
+};
+
 // Autocomplete / Combobox unificado para seleção de Insumos (Planilha + Pasta de Insumos + Matérias-Primas)
 const InsumoCombobox = ({
   value,
@@ -1108,16 +1123,16 @@ export default function FichasTecnicasModule() {
   // Auditoria: varre todas as fichas e aponta onde o custo não é confiável
   const [auditoriaSoProblemas, setAuditoriaSoProblemas] = useState<boolean>(true);
   const auditoria = useMemo(() => {
-    const linhas: { ficha: FichaTecnica; ing: Ingrediente; info: ReturnType<typeof calcularCustoIngredienteInfo>; salvo: number | null; divergente: boolean; problema: boolean }[] = [];
+    const linhas: { ficha: FichaTecnica; ing: Ingrediente; ingIdx: number; info: ReturnType<typeof calcularCustoIngredienteInfo>; salvo: number | null; divergente: boolean; problema: boolean }[] = [];
     const porInsumo = new Map<string, { nome: string; variantes: Map<string, { unitCost: number; unit: string; fichas: string[] }> }>();
 
     fichas.forEach(ficha => {
-      (ficha.ingredientes || []).forEach(ing => {
+      (ficha.ingredientes || []).forEach((ing, ingIdx) => {
         const info = calcularCustoIngredienteInfo(ing, new Set([ficha.id!]));
         const salvo = typeof ing.custoCalculado === 'number' ? ing.custoCalculado : null;
         const divergente = salvo !== null && Math.abs(info.custo - salvo) > Math.max(0.05, salvo * 0.1);
         const problema = info.alertas.length > 0 || divergente;
-        linhas.push({ ficha, ing, info, salvo, divergente, problema });
+        linhas.push({ ficha, ing, ingIdx, info, salvo, divergente, problema });
 
         if (info.unitCost !== undefined) {
           const key = normalizeText(ing.nome);
@@ -1144,6 +1159,52 @@ export default function FichasTecnicasModule() {
       totalProblemas: linhas.filter(l => l.problema).length,
     };
   }, [fichas, materiasPrimas, catalogoInsumos]);
+
+  // Edição rápida direto na Auditoria
+  const [auditEditKey, setAuditEditKey] = useState<string | null>(null);
+  const [auditDraft, setAuditDraft] = useState<{ quantidade: string; unidadeCompra: string; custoCompra: string; custoManual: boolean }>({ quantidade: '', unidadeCompra: '', custoCompra: '', custoManual: false });
+  const [auditSaving, setAuditSaving] = useState<string | null>(null);
+
+  const abrirEdicaoAuditoria = (key: string, ing: Ingrediente, info: { unitCost?: number; unit?: string }) => {
+    if (auditEditKey === key) { setAuditEditKey(null); return; }
+    setAuditEditKey(key);
+    setAuditDraft({
+      quantidade: ing.quantidade || '',
+      unidadeCompra: ing.custoManual ? (ing.unidadeCompra || '') : (info.unit || ing.unidadeCompra || ''),
+      custoCompra: ing.custoManual ? (ing.custoCompra || '') : (info.unitCost !== undefined ? Number(info.unitCost.toFixed(4)).toString() : (ing.custoCompra || '')),
+      custoManual: !!ing.custoManual,
+    });
+  };
+
+  // Regrava a ficha inteira com o patch no ingrediente e os custos recalculados (snapshot atualizado)
+  const salvarFichaAuditoria = async (ficha: FichaTecnica, ingIdx: number | null, patch: Partial<Ingrediente>) => {
+    if (!ficha.id) return;
+    const key = `${ficha.id}:${ingIdx ?? 'all'}`;
+    setAuditSaving(key);
+    try {
+      const novos = (ficha.ingredientes || []).map((ing, i) => {
+        const atualizado: Ingrediente = i === ingIdx ? { ...ing, ...patch } : { ...ing };
+        return { ...atualizado, custoCalculado: Number(calcularCustoIngrediente(atualizado, new Set([ficha.id!])).toFixed(2)) };
+      });
+      await appDb.update("fichas_tecnicas", ficha.id, { ingredientes: novos });
+      if (ingIdx !== null) setAuditEditKey(null);
+    } catch (err) {
+      console.error("Erro ao salvar pela auditoria:", err);
+      alert("Não foi possível salvar. Tente de novo.");
+    } finally {
+      setAuditSaving(null);
+    }
+  };
+
+  const aceitarTodosCustosAtuais = async () => {
+    const ids = Array.from(new Set(auditoria.linhas.filter(l => l.divergente).map(l => l.ficha.id!)));
+    if (ids.length === 0) return;
+    if (!confirm(`Atualizar o custo salvo de ${ids.length} ficha(s) para o custo atual?`)) return;
+    for (const id of ids) {
+      const ficha = fichas.find(f => f.id === id);
+      if (ficha) await salvarFichaAuditoria(ficha, null, {});
+    }
+  };
 
   // Sugestões unificadas para o Combobox
   const todasSugestoes = useMemo<AutocompleteItem[]>(() => {
@@ -1701,13 +1762,26 @@ export default function FichasTecnicasModule() {
               <div>
                 <h3 className="text-white font-semibold">Auditoria de custos</h3>
                 <p className="text-xs text-slate-400">
-                  Linha por linha: de onde vem o preço, o custo atual e o que foi salvo na ficha. Corrija editando a ficha.
+                  Clique numa linha para corrigir ali mesmo. O custo atual recalcula enquanto você digita.
                 </p>
               </div>
-              <label className="text-xs text-slate-300 flex items-center gap-2 cursor-pointer">
-                <input type="checkbox" checked={auditoriaSoProblemas} onChange={(e) => setAuditoriaSoProblemas(e.target.checked)} />
-                Mostrar só problemas
-              </label>
+              <div className="flex items-center gap-3 flex-wrap">
+                {auditoria.linhasDivergentes > 0 && (
+                  <button
+                    type="button"
+                    onClick={aceitarTodosCustosAtuais}
+                    disabled={auditSaving !== null}
+                    className="text-xs bg-amber-500/10 text-amber-300 border border-amber-500/30 px-3 py-1.5 rounded-lg hover:bg-amber-500/20 disabled:opacity-50"
+                    title="Grava o custo atual como custo salvo em todas as fichas que mudaram"
+                  >
+                    Aceitar todos os custos atuais
+                  </button>
+                )}
+                <label className="text-xs text-slate-300 flex items-center gap-2 cursor-pointer">
+                  <input type="checkbox" checked={auditoriaSoProblemas} onChange={(e) => setAuditoriaSoProblemas(e.target.checked)} />
+                  Mostrar só problemas
+                </label>
+              </div>
             </div>
 
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
@@ -1751,12 +1825,23 @@ export default function FichasTecnicasModule() {
                 </thead>
                 <tbody>
                   {auditoria.linhas
-                    .filter(l => !auditoriaSoProblemas || l.problema)
-                    .map((l, i) => (
-                    <tr key={i} className={`border-b border-slate-800/50 ${l.problema ? 'bg-rose-500/5' : ''}`}>
-                      <td className="py-1.5 pr-2 text-slate-200">
-                        <button type="button" className="hover:underline text-left" onClick={() => handleEdit(l.ficha)}>{l.ficha.nome}</button>
-                      </td>
+                    .filter(l => !auditoriaSoProblemas || l.problema || `${l.ficha.id}:${l.ingIdx}` === auditEditKey)
+                    .map((l) => {
+                    const key = `${l.ficha.id}:${l.ingIdx}`;
+                    const aberto = auditEditKey === key;
+                    const ingDraft: Ingrediente = aberto
+                      ? { ...l.ing, quantidade: auditDraft.quantidade, unidadeCompra: auditDraft.unidadeCompra, custoCompra: auditDraft.custoCompra, custoManual: auditDraft.custoManual }
+                      : l.ing;
+                    const prev = aberto ? calcularCustoIngredienteInfo(ingDraft, new Set([l.ficha.id!])) : l.info;
+                    const sugestao = sugestaoQuantidade(l.ing.quantidade);
+                    const salvando = auditSaving === key;
+                    return (
+                    <React.Fragment key={key}>
+                    <tr
+                      onClick={() => abrirEdicaoAuditoria(key, l.ing, l.info)}
+                      className={`border-b border-slate-800/50 cursor-pointer hover:bg-slate-800/40 ${aberto ? 'bg-slate-800/60' : l.problema ? 'bg-rose-500/5' : ''}`}
+                    >
+                      <td className="py-1.5 pr-2 text-slate-200">{l.ficha.nome}</td>
                       <td className="py-1.5 pr-2 text-slate-300">{l.ing.nome}</td>
                       <td className="py-1.5 pr-2 font-mono text-slate-400">{l.ing.quantidade}</td>
                       <td className="py-1.5 pr-2 text-slate-400">{l.info.origemNome || '—'}{l.ing.custoManual ? ' · MANUAL' : ''}</td>
@@ -1765,7 +1850,91 @@ export default function FichasTecnicasModule() {
                       <td className={`py-1.5 pr-2 text-right font-mono ${l.divergente ? 'text-amber-400' : 'text-slate-500'}`}>{l.salvo !== null ? l.salvo.toFixed(2) : '—'}</td>
                       <td className="py-1.5 text-rose-300">{l.info.alertas.join(' · ')}</td>
                     </tr>
-                  ))}
+                    {aberto && (
+                      <tr className="bg-slate-950/80 border-b border-slate-700" onClick={(e) => e.stopPropagation()}>
+                        <td colSpan={8} className="p-3">
+                          <div className="space-y-3">
+                            {(sugestao || l.divergente || l.ing.custoManual) && (
+                              <div className="flex flex-wrap gap-2">
+                                {sugestao && (
+                                  <button type="button" disabled={salvando}
+                                    onClick={() => salvarFichaAuditoria(l.ficha, l.ingIdx, { quantidade: sugestao })}
+                                    className="text-xs bg-emerald-500/10 text-emerald-300 border border-emerald-500/30 px-3 py-1.5 rounded-lg hover:bg-emerald-500/20 disabled:opacity-50">
+                                    Corrigir quantidade para "{sugestao}"
+                                  </button>
+                                )}
+                                {l.divergente && (
+                                  <button type="button" disabled={salvando}
+                                    onClick={() => salvarFichaAuditoria(l.ficha, l.ingIdx, {})}
+                                    className="text-xs bg-amber-500/10 text-amber-300 border border-amber-500/30 px-3 py-1.5 rounded-lg hover:bg-amber-500/20 disabled:opacity-50">
+                                    Aceitar custo atual (R$ {l.info.custo.toFixed(2)})
+                                  </button>
+                                )}
+                                {l.ing.custoManual && (
+                                  <button type="button" disabled={salvando}
+                                    onClick={() => salvarFichaAuditoria(l.ficha, l.ingIdx, { custoManual: false })}
+                                    className="text-xs bg-sky-500/10 text-sky-300 border border-sky-500/30 px-3 py-1.5 rounded-lg hover:bg-sky-500/20 disabled:opacity-50">
+                                    Voltar ao preço vivo
+                                  </button>
+                                )}
+                              </div>
+                            )}
+
+                            <div className="flex flex-wrap items-end gap-3">
+                              <label className="text-[11px] text-slate-400 space-y-1">
+                                <span className="block">Qtd utilizada</span>
+                                <input value={auditDraft.quantidade} autoFocus
+                                  onChange={(e) => setAuditDraft(d => ({ ...d, quantidade: e.target.value }))}
+                                  placeholder="Ex: 50ml, 0,03l, 150g"
+                                  className="w-32 bg-slate-800 border border-slate-700 rounded px-2 py-1 text-white font-mono text-xs focus:border-emerald-500 focus:outline-none" />
+                              </label>
+                              <label className="text-[11px] text-slate-400 space-y-1">
+                                <span className="block">Unidade do preço</span>
+                                <input value={auditDraft.unidadeCompra}
+                                  onChange={(e) => setAuditDraft(d => ({ ...d, unidadeCompra: e.target.value, custoManual: true }))}
+                                  placeholder="L, KG, UN"
+                                  className="w-20 bg-slate-800 border border-slate-700 rounded px-2 py-1 text-white font-mono text-xs uppercase focus:border-emerald-500 focus:outline-none" />
+                              </label>
+                              <label className="text-[11px] text-slate-400 space-y-1">
+                                <span className="block">R$ por unidade {auditDraft.custoManual ? '(manual)' : '(vivo)'}</span>
+                                <input type="number" step="0.01" value={auditDraft.custoCompra}
+                                  onChange={(e) => setAuditDraft(d => ({ ...d, custoCompra: e.target.value, custoManual: true }))}
+                                  className="w-28 bg-slate-800 border border-slate-700 rounded px-2 py-1 text-white font-mono text-xs focus:border-emerald-500 focus:outline-none" />
+                              </label>
+                              <div className="text-xs font-mono pb-1">
+                                <span className="text-slate-400">Novo custo: </span>
+                                <span className="text-emerald-400 font-bold">R$ {prev.custo.toFixed(2)}</span>
+                              </div>
+                              <div className="flex gap-2 ml-auto">
+                                <button type="button" onClick={() => handleEdit(l.ficha)}
+                                  className="text-xs text-slate-300 border border-slate-700 px-3 py-1.5 rounded-lg hover:bg-slate-800">
+                                  Abrir ficha completa
+                                </button>
+                                <button type="button" onClick={() => setAuditEditKey(null)}
+                                  className="text-xs text-slate-400 px-3 py-1.5 rounded-lg hover:bg-slate-800">
+                                  Cancelar
+                                </button>
+                                <button type="button" disabled={salvando}
+                                  onClick={() => salvarFichaAuditoria(l.ficha, l.ingIdx, {
+                                    quantidade: auditDraft.quantidade.trim(),
+                                    ...(auditDraft.custoManual ? { custoCompra: auditDraft.custoCompra, unidadeCompra: auditDraft.unidadeCompra.toUpperCase(), custoManual: true } : {}),
+                                  })}
+                                  className="text-xs bg-emerald-600 text-white px-4 py-1.5 rounded-lg hover:bg-emerald-500 disabled:opacity-50">
+                                  {salvando ? 'Salvando...' : 'Salvar'}
+                                </button>
+                              </div>
+                            </div>
+
+                            {prev.alertas.length > 0 && (
+                              <p className="text-[11px] text-rose-300">Ainda com alerta: {prev.alertas.join(' · ')}</p>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    )}
+                    </React.Fragment>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
