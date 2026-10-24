@@ -42,6 +42,9 @@ export interface Ingrediente {
   unidadeOriginalCompra?: string;
   custoOriginalCompra?: number;
   isConvertido?: boolean;
+  // true somente quando o usuário DIGITOU o custo/unidade de propósito.
+  // Sem essa marca, o custo é sempre recalculado ao vivo a partir da fonte (sub-receita, matéria-prima ou planilha).
+  custoManual?: boolean;
 }
 
 export interface CategoriaFicha {
@@ -261,121 +264,101 @@ export const getFichaRendimentoInfo = (ficha: FichaTecnica | any): { qtd: number
   return { qtd: qtd > 0 ? qtd : 1, unidade: cleanUnit };
 };
 
-// Conversão inteligente de unidades culinárias e de bar
-export const getUnitMultiplier = (recipeUnit: string, baseUnit: string, itemName: string = "", quantityVal: number = 0): number => {
-  const ru = recipeUnit.toLowerCase().trim();
-  const bu = baseUnit.toLowerCase().trim();
+// ---------------------------------------------------------------------------
+// Conversão de unidades (culinária e bar)
+// unitConversion devolve o multiplicador E se a conversão é confiável (ok).
+// ok = false significa que as unidades não conversam (ex.: receita em KG e preço por CX sem peso no nome)
+// e o custo daquela linha NÃO deve ser considerado confiável.
+// ---------------------------------------------------------------------------
+const MASS_G = ['g', 'gr', 'grs', 'grama', 'gramas'];
+const MASS_KG = ['kg', 'kgs', 'quilo', 'quilos', 'quilograma'];
+const VOL_ML = ['ml', 'mls', 'mililitro', 'mililitros'];
+const VOL_L = ['l', 'lt', 'lts', 'litro', 'litros'];
+const COUNT_UNITS = ['un', 'und', 'unid', 'unidade', 'unidades', 'pc', 'pç', 'peca', 'peça', 'fatia', 'fatias', 'folha', 'folhas', 'ramo', 'ramos', 'gf', 'gfa', 'garrafa', 'lata', 'cx', 'cx.', 'caixa', 'pct', 'pacote', 'fd', 'fardo', 'dz', 'porcao', 'porção'];
+const PACKAGE_UNITS = ['un', 'und', 'unid', 'unidade', 'garrafa', 'gf', 'gfa', 'lata', 'cx', 'cx.', 'caixa', 'pct', 'pacote', 'fd', 'fardo', 'pç', 'peca'];
 
-  // Se são iguais
-  if (ru && ru === bu) return 1;
+// Lê o conteúdo da embalagem a partir do nome (ex.: "ACUCAR CRISTAL 5KG", "XAROPE MONIN 700ML", "AGUA 1,5L", "BACON 500G")
+export const parseConteudoEmbalagem = (itemName: string): { ml?: number; g?: number } => {
+  const s = (itemName || '').toUpperCase();
+  const ml = s.match(/(\d+(?:[.,]\d+)?)\s*ML\b/);
+  if (ml) return { ml: parseFloat(ml[1].replace(',', '.')) };
+  const l = s.match(/(\d+(?:[.,]\d+)?)\s*(?:L|LT|LTS|LITROS?)\b/);
+  if (l) return { ml: parseFloat(l[1].replace(',', '.')) * 1000 };
+  const kg = s.match(/(\d+(?:[.,]\d+)?)\s*(?:KG|KGS)\b/);
+  if (kg) return { g: parseFloat(kg[1].replace(',', '.')) * 1000 };
+  const g = s.match(/(\d+(?:[.,]\d+)?)\s*(?:G|GR|GRS)\b/);
+  if (g) return { g: parseFloat(g[1].replace(',', '.')) };
+  if (/\b(GIN|VODKA|WHISKY|WHISKEY|RUM|TEQUILA|LICOR|APEROL|CAMPARI|CACHA[CÇ]A)\b/.test(s)) return { ml: 750 }; // garrafa padrão
+  return {};
+};
 
-  // Conversões de Massa (Peso)
-  const isRecipeG = ['g', 'gr', 'grs', 'grama', 'gramas'].includes(ru);
-  const isRecipeKg = ['kg', 'kgs', 'quilo', 'quilos', 'quilograma'].includes(ru);
-  const isBaseG = ['g', 'gr', 'grs', 'grama', 'gramas'].includes(bu);
-  const isBaseKg = ['kg', 'kgs', 'quilo', 'quilos', 'quilograma'].includes(bu);
+export const unitConversion = (recipeUnit: string, baseUnit: string, itemName: string = "", quantityVal: number = 0): { mult: number; ok: boolean } => {
+  const ru = (recipeUnit || '').toLowerCase().trim();
+  const bu = (baseUnit || '').toLowerCase().trim();
 
-  if (isBaseKg && isRecipeG) return 0.001; // ex: 150g de um insumo precificado por KG (150 * 0.001 = 0.15 kg)
-  if (isBaseG && isRecipeKg) return 1000;
-  if (isBaseKg && isRecipeKg) return 1;
-  if (isBaseG && isRecipeG) return 1;
+  if (ru && ru === bu) return { mult: 1, ok: true };
 
-  // Conversões de Volume (Líquidos)
-  const isRecipeMl = ['ml', 'mls', 'mililitro', 'mililitros'].includes(ru);
-  const isRecipeL = ['l', 'lt', 'lts', 'litro', 'litros'].includes(ru);
-  const isBaseMl = ['ml', 'mls', 'mililitro', 'mililitros'].includes(bu);
-  const isBaseL = ['l', 'lt', 'lts', 'litro', 'litros'].includes(bu);
+  const isRecipeG = MASS_G.includes(ru), isRecipeKg = MASS_KG.includes(ru);
+  const isBaseG = MASS_G.includes(bu), isBaseKg = MASS_KG.includes(bu);
+  if (isBaseKg && isRecipeG) return { mult: 0.001, ok: true };
+  if (isBaseG && isRecipeKg) return { mult: 1000, ok: true };
+  if ((isBaseKg && isRecipeKg) || (isBaseG && isRecipeG)) return { mult: 1, ok: true };
 
-  if (isBaseL && isRecipeMl) return 0.001; // ex: 50ml de um insumo precificado por Litro
-  if (isBaseMl && isRecipeL) return 1000;
-  if (isBaseL && isRecipeL) return 1;
-  if (isBaseMl && isRecipeMl) return 1;
+  const isRecipeMl = VOL_ML.includes(ru), isRecipeL = VOL_L.includes(ru);
+  const isBaseMl = VOL_ML.includes(bu), isBaseL = VOL_L.includes(bu);
+  if (isBaseL && isRecipeMl) return { mult: 0.001, ok: true };
+  if (isBaseMl && isRecipeL) return { mult: 1000, ok: true };
+  if ((isBaseL && isRecipeL) || (isBaseMl && isRecipeMl)) return { mult: 1, ok: true };
 
-  // Doses e medidas padrão de coquetelaria (dose padrão = 50ml)
-  const isDose = ['dose', 'doses', 'ds'].includes(ru);
-  if (isBaseL && isDose) return 0.050;
-  if (isBaseMl && isDose) return 50;
+  // Medidas de bar/cozinha convertidas para ml
+  const medidasMl: Record<string, number> = {
+    dose: 50, doses: 50, ds: 50, oz: 30, onca: 30, 'onça': 30, oncas: 30, 'onças': 30, cl: 10,
+    dash: 1, dashes: 1, lance: 1, lances: 1, bailarina: 5, cb: 5, 'colher bailarina': 5,
+    cs: 15, colher: 15, colheres: 15, 'colher de sopa': 15, sopa: 15,
+    cc: 5, 'colher de cha': 5, 'colher de chá': 5, cha: 5, 'chá': 5,
+    gota: 0.05, gotas: 0.05, xicara: 200, 'xícara': 200, xicaras: 200, 'xícaras': 200, copo: 200, copos: 200,
+  };
+  const medida = medidasMl[ru];
+  if (medida !== undefined) {
+    if (isBaseL || isBaseKg) return { mult: medida / 1000, ok: true };
+    if (isBaseMl || isBaseG) return { mult: medida, ok: true };
+  }
 
-  // Onças (oz ~ 30ml)
-  const isOz = ['oz', 'onca', 'onça', 'oncas', 'onças'].includes(ru);
-  if (isBaseL && isOz) return 0.030;
-  if (isBaseMl && isOz) return 30;
-
-  // Centilitros (cl ~ 10ml)
-  const isCl = ['cl'].includes(ru);
-  if (isBaseL && isCl) return 0.010;
-  if (isBaseMl && isCl) return 10;
-
-  // Dash / Lances (~ 1ml)
-  const isDash = ['dash', 'dashes', 'lance', 'lances'].includes(ru);
-  if (isBaseL && isDash) return 0.001;
-  if (isBaseMl && isDash) return 1;
-
-  // Colheres (sopa ~ 15ml/g, chá ~ 5ml/g, bailarina ~ 5ml)
-  const isColherBailarina = ['bailarina', 'cb', 'colher bailarina'].includes(ru);
-  if (isBaseL && isColherBailarina) return 0.005;
-  if (isBaseMl && isColherBailarina) return 5;
-
-  const isColherSopa = ['cs', 'colher', 'colheres', 'colher de sopa', 'sopa'].includes(ru);
-  if ((isBaseKg || isBaseL) && isColherSopa) return 0.015;
-  if ((isBaseG || isBaseMl) && isColherSopa) return 15;
-
-  const isColherCha = ['cc', 'colher de cha', 'colher de chá', 'cha', 'chá'].includes(ru);
-  if ((isBaseKg || isBaseL) && isColherCha) return 0.005;
-  if ((isBaseG || isBaseMl) && isColherCha) return 5;
-
-  // Gotas (~ 0.05ml)
-  const isGota = ['gota', 'gotas'].includes(ru);
-  if (isBaseL && isGota) return 0.00005;
-  if (isBaseMl && isGota) return 0.05;
-
-  // Xícara (~ 200ml / 200g)
-  const isXicara = ['xicara', 'xícara', 'xicaras', 'xícaras', 'copo', 'copos'].includes(ru);
-  if ((isBaseKg || isBaseL) && isXicara) return 0.200;
-  if ((isBaseG || isBaseMl) && isXicara) return 200;
-
-  // Se a receita não especificou unidade explícita (!ru):
+  // Receita sem unidade explícita: mantém a regra antiga (>=5 sobre L = ml; >=10 sobre KG = g)
   if (!ru) {
-    // Se a base é Litro e a quantidade digitada for >= 5 (ex: "50" de xarope), usuário quis dizer 50ml, não 50 litros!
-    if (isBaseL && quantityVal >= 5) return 0.001;
-    // Se a base é Kg e a quantidade for >= 10 (ex: "100" de açúcar), usuário quis dizer 100g, não 100 kg!
-    if (isBaseKg && quantityVal >= 10) return 0.001;
-    return 1;
+    if (isBaseL && quantityVal >= 5) return { mult: 0.001, ok: true };
+    if (isBaseKg && quantityVal >= 10) return { mult: 0.001, ok: true };
+    return { mult: 1, ok: true };
   }
 
-  // Garrafa para drinks medidos em ml / dose
-  const isBaseUnitOrBottle = ['un', 'unid', 'unidade', 'garrafa', 'gf', 'gfa'].includes(bu);
-  if (isBaseUnitOrBottle) {
-    const nameUpper = itemName.toUpperCase();
-    let bottleMl = 0;
-    const mlMatch = nameUpper.match(/(\d+)\s*ML/);
-    const lMatch = nameUpper.match(/(\d+(?:[.,]\d+)?)\s*L(?:T)?(?:\b|\s)/);
-
-    if (mlMatch) {
-      bottleMl = parseFloat(mlMatch[1]);
-    } else if (lMatch) {
-      bottleMl = parseFloat(lMatch[1].replace(',', '.')) * 1000;
-    } else if (
-      nameUpper.includes("GIN") || nameUpper.includes("VODKA") || 
-      nameUpper.includes("WHISKY") || nameUpper.includes("WHISKEY") || 
-      nameUpper.includes("RUM") || nameUpper.includes("TEQUILA") || 
-      nameUpper.includes("LICOR") || nameUpper.includes("APEROL") || 
-      nameUpper.includes("CAMPARI") || nameUpper.includes("CACHAÇA") ||
-      nameUpper.includes("CACHACA")
-    ) {
-      // Garrafa padrão de destilados no Brasil = 750ml
-      bottleMl = 750;
-    }
-
-    if (bottleMl > 0) {
-      if (isRecipeMl) return 1 / bottleMl;
-      if (isRecipeL) return 1000 / bottleMl;
-      if (isDose) return 50 / bottleMl;
-      if (isOz) return 30 / bottleMl;
-    }
+  // Preço por embalagem (UN, CX, garrafa...) e receita em ml/g: usa o conteúdo lido do nome
+  if (PACKAGE_UNITS.includes(bu)) {
+    const cont = parseConteudoEmbalagem(itemName);
+    const recipeMl = isRecipeMl ? 1 : isRecipeL ? 1000 : medida !== undefined ? medida : 0;
+    const recipeG = isRecipeG ? 1 : isRecipeKg ? 1000 : 0;
+    if (cont.ml && recipeMl) return { mult: recipeMl / cont.ml, ok: true };
+    if (cont.g && recipeG) return { mult: recipeG / cont.g, ok: true };
   }
 
-  return 1;
+  // Contagem com contagem (1 un de um item vendido por UN)
+  if (COUNT_UNITS.includes(ru) && COUNT_UNITS.includes(bu)) return { mult: 1, ok: true };
+
+  // Unidades que não conversam: devolve 1 para não quebrar telas antigas, mas marca como NÃO confiável
+  return { mult: 1, ok: false };
+};
+
+// Mantido por compatibilidade com o restante do código
+export const getUnitMultiplier = (recipeUnit: string, baseUnit: string, itemName: string = "", quantityVal: number = 0): number =>
+  unitConversion(recipeUnit, baseUnit, itemName, quantityVal).mult;
+
+// Quantidades fora do padrão (provável erro de digitação, ex.: "0,005ml" ou "30l")
+export const alertaQuantidade = (val: number, unit: string): string | null => {
+  const u = (unit || '').toLowerCase().trim();
+  if (VOL_ML.includes(u) && val > 0 && val < 1) return `Quantidade suspeita: ${val} ml (quis dizer ${val} L?)`;
+  if (MASS_G.includes(u) && val > 0 && val < 1) return `Quantidade suspeita: ${val} g (quis dizer ${val} kg?)`;
+  if (VOL_L.includes(u) && val > 5) return `Quantidade suspeita: ${val} L (quis dizer ${val} ml?)`;
+  if (MASS_KG.includes(u) && val > 20) return `Quantidade suspeita: ${val} kg (quis dizer ${val} g?)`;
+  return null;
 };
 
 // Autocomplete / Combobox unificado para seleção de Insumos (Planilha + Pasta de Insumos + Matérias-Primas)
@@ -610,7 +593,7 @@ export default function FichasTecnicasModule() {
   const [apiError, setApiError] = useState<string | null>(null);
   
   const [searchTerm, setSearchTerm] = useState("");
-  const [filterTipo, setFilterTipo] = useState<"bebida" | "comida" | "insumo" | "materias_primas">("bebida");
+  const [filterTipo, setFilterTipo] = useState<"bebida" | "comida" | "insumo" | "materias_primas" | "auditoria">("bebida");
   const [filterCategoria, setFilterCategoria] = useState<string>("todas");
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -653,8 +636,12 @@ export default function FichasTecnicasModule() {
   // Helper para inferir unidade de medida a partir do nome do insumo
   const inferirUnidade = (nomeItem: string): string => {
     const s = nomeItem.toUpperCase();
+    // Número + unidade no nome ("ACUCAR 5KG", "AGUA 1,5L", "BACON 500G") = preço por EMBALAGEM.
+    // O conteúdo é lido do nome na hora da conversão (parseConteudoEmbalagem). Antes isso virava "preço por KG/L"
+    // e um pacote de 5 kg era cobrado como se fosse 1 kg.
+    if (/\d+(?:[.,]\d+)?\s*(KG|KGS|G|GR|L|LT|LTS|ML)\b/.test(s)) return "UN";
     if (s.includes(" KG") || s.includes("QUILO") || s.includes("QUILOGRAMA")) return "KG";
-    if (s.includes(" 1LT") || s.includes(" 1L") || s.includes(" 5L") || s.includes("LITRO") || s.includes(" REFIL")) return "L";
+    if (s.includes("LITRO") || s.includes(" REFIL")) return "L";
     if (s.includes(" ML") || s.includes(" LATA") || s.includes(" LONG NECK") || s.includes(" GFA") || s.includes(" VD ")) return "UN";
     if (s.includes(" PAC ") || s.includes(" CX") || s.includes(" PACOTE") || s.includes(" CAIXA")) return "UN";
     // Hortifrúti, Carnes, Queijos e Peixes geralmente cotados em KG
@@ -951,21 +938,82 @@ export default function FichasTecnicasModule() {
     }
   };
 
-  // Cálculo individual de custo por ingrediente com priorização inteligente e tolerância
+  // ---------------------------------------------------------------------------
+  // Fonte de preço VIVA de um ingrediente (ignora qualquer custo salvo na ficha).
+  // Ordem: sub-receita (nome exato) → matéria-prima (nome exato) → planilha (catálogo/compras) → sub-receita por nome aproximado.
+  // ---------------------------------------------------------------------------
+  type FontePreco = { unitCost: number; unit: string; origemNome: string; isDynamic: boolean; aproximado?: string };
+
+  const resolverFontePreco = (ing: Ingrediente, visited: Set<string>): FontePreco | null => {
+    const normIngNome = normalizeText(ing.nome);
+    if (!normIngNome) return null;
+
+    const fromSubFicha = (subFicha: FichaTecnica, aproximado?: string): FontePreco => {
+      const subCustoTotal = calcularCustoFicha(subFicha, new Set(visited));
+      const rendInfo = getFichaRendimentoInfo(subFicha);
+      return {
+        unitCost: rendInfo.qtd > 0 ? subCustoTotal / rendInfo.qtd : subCustoTotal,
+        unit: rendInfo.unidade,
+        origemNome: subFicha.tipo === 'insumo' ? 'Insumo / Pasta' : 'Receita Própria',
+        isDynamic: false,
+        aproximado,
+      };
+    };
+
+    // 1. Sub-receita com nome EXATO (prioriza tipo insumo)
+    const subExata = fichas.find(f => normalizeText(f.nome) === normIngNome && f.tipo === 'insumo') ||
+                     fichas.find(f => normalizeText(f.nome) === normIngNome);
+    if (subExata) return fromSubFicha(subExata);
+
+    // 2. Matéria-prima cadastrada (aceita custo 0, ex.: Água)
+    const mat = materiasPrimas.find(m => normalizeText(m.nome) === normIngNome);
+    if (mat && typeof mat.custo === 'number' && mat.custo >= 0) {
+      return {
+        unitCost: mat.custo,
+        unit: (mat.unidade || 'un'),
+        origemNome: mat.custo === 0 ? 'Matéria-Prima (Custo Zero)' : 'Matéria-Prima Cadastrada',
+        isDynamic: false,
+      };
+    }
+
+    // 3. Planilha (Catálogo ou Compras/NF)
+    const catMatch = findCatalogoItem(ing.nome, catalogoInsumos);
+    if (catMatch && typeof catMatch.custo === 'number' && catMatch.custo >= 0) {
+      return {
+        unitCost: catMatch.custo,
+        unit: (catMatch.um || 'un').trim(),
+        origemNome: catMatch.origemPlanilha === 'compras' ? 'Planilha Compras' : 'Planilha',
+        isDynamic: true,
+        aproximado: normalizeText(catMatch.nome) !== normIngNome ? catMatch.nome : undefined,
+      };
+    }
+
+    // 4. Sub-receita por nome aproximado (último recurso, sempre sinalizado)
+    const subAprox = fichas.find(f => {
+      const fNorm = normalizeText(f.nome);
+      return fNorm.length >= 6 && normIngNome.length >= 6 && (normIngNome.includes(fNorm) || fNorm.includes(normIngNome));
+    });
+    if (subAprox) return fromSubFicha(subAprox, subAprox.nome);
+
+    return null;
+  };
+
+  // Cálculo individual de custo por ingrediente.
+  // Regra: preço VIVO por padrão. Custo digitado à mão só vale se o usuário marcou (custoManual).
   const calcularCustoIngredienteInfo = (
     ing: Ingrediente, 
     visited = new Set<string>()
-  ): { custo: number; isDynamic: boolean; unitCost?: number; unit?: string; origemNome?: string } => {
+  ): { custo: number; isDynamic: boolean; unitCost?: number; unit?: string; origemNome?: string; alertas: string[] } => {
+    const alertas: string[] = [];
     let val = 0;
     let unit = "";
 
-    // Suporte a frações (ex: 1/2 dose, 1/4 colher) e números normais
     const fracMatch = ing.quantidade ? ing.quantidade.match(/^(\d+)\/(\d+)\s*(.*)$/) : null;
     if (fracMatch) {
       val = parseInt(fracMatch[1], 10) / parseInt(fracMatch[2], 10);
       unit = fracMatch[3].toLowerCase().trim();
     } else {
-      const qtdMatch = ing.quantidade ? ing.quantidade.match(/^([\d.,]+)\s*(.*)$/) : null;
+      const qtdMatch = ing.quantidade ? ing.quantidade.trim().match(/^([\d.,]+)\s*(.*)$/) : null;
       if (qtdMatch) {
         val = parseFloat(qtdMatch[1].replace(',', '.'));
         unit = qtdMatch[2].toLowerCase().trim();
@@ -973,123 +1021,70 @@ export default function FichasTecnicasModule() {
     }
 
     if (!val || isNaN(val) || val <= 0) {
-      if (typeof ing.custoCalculado === 'number' && ing.custoCalculado >= 0) {
-        return { custo: ing.custoCalculado, isDynamic: false, origemNome: 'Snapshot Firebase' };
-      }
-      if (ing.custoCompra !== undefined && ing.custoCompra !== null && ing.custoCompra.toString().trim() !== '') {
-        const manual = parseFloat(ing.custoCompra.toString().replace(',', '.'));
-        if (!isNaN(manual) && manual >= 0) {
-          return { custo: manual, isDynamic: false, unitCost: manual, unit: ing.unidadeCompra || 'un', origemNome: manual === 0 ? 'Custo Zero' : 'Custo Manual' };
-        }
-      }
-      return { custo: 0, isDynamic: false };
+      alertas.push('Quantidade inválida ou vazia');
+      return { custo: 0, isDynamic: false, alertas };
     }
 
-    const normIngNome = normalizeText(ing.nome);
+    const alertaQtd = alertaQuantidade(val, unit);
+    if (alertaQtd) alertas.push(alertaQtd);
 
-    // 1. Ingrediente com Desmembramento/Conversão de Fardo/Caixa (ex: R$ 47.30 / 30 = R$ 1.58 / KG)
-    if (ing.isConvertido && ing.custoCompra !== undefined && ing.custoCompra !== null && ing.custoCompra.toString().trim() !== '') {
-      const baseCost = parseFloat(ing.custoCompra.toString().replace(',', '.'));
-      if (!isNaN(baseCost) && baseCost >= 0) {
-        const baseUnit = (ing.unidadeCompra || 'un').toLowerCase();
-        const multiplier = getUnitMultiplier(unit || baseUnit, baseUnit, ing.nome, val);
-        return {
-          custo: val * multiplier * baseCost,
-          isDynamic: false,
-          unitCost: baseCost,
-          unit: ing.unidadeCompra || 'un',
-          origemNome: `Convertido (${ing.unidadeOriginalCompra || 'FD'} → ${ing.unidadeCompra || 'KG'})`
-        };
-      }
+    const parseNum = (v: any): number | null => {
+      if (v === undefined || v === null || v.toString().trim() === '') return null;
+      const n = parseFloat(v.toString().replace(',', '.'));
+      return isNaN(n) || n < 0 ? null : n;
+    };
+
+    const aplicar = (unitCost: number, baseUnitRaw: string, origemNome: string, isDynamic: boolean) => {
+      const baseUnit = (baseUnitRaw || 'un').toLowerCase();
+      const conv = unitConversion(unit || baseUnit, baseUnit, ing.nome, val);
+      if (!conv.ok) alertas.push(`Unidade não confere: receita em "${unit}", preço por "${baseUnitRaw.toUpperCase()}"`);
+      return { custo: val * conv.mult * unitCost, isDynamic, unitCost, unit: baseUnitRaw, origemNome, alertas };
+    };
+
+    const manualCost = parseNum(ing.custoCompra);
+
+    // A. Custo digitado à mão pelo usuário (inclusive R$ 0,00)
+    if (ing.custoManual && manualCost !== null) {
+      return aplicar(manualCost, ing.unidadeCompra || 'un', manualCost === 0 ? 'Custo Zero (Manual)' : 'Custo Manual', false);
     }
 
-    // 2. Custo unitário manual salvo no próprio ingrediente (Prioridade MÁXIMA - respeita o que o usuário definiu, inclusive Custo R$ 0,00)
-    if (ing.custoCompra !== undefined && ing.custoCompra !== null && ing.custoCompra.toString().trim() !== '') {
-      const baseCost = parseFloat(ing.custoCompra.toString().replace(',', '.'));
-      if (!isNaN(baseCost) && baseCost >= 0) {
-        const baseUnit = (ing.unidadeCompra || 'un').toLowerCase();
-        const multiplier = getUnitMultiplier(unit || baseUnit, baseUnit, ing.nome, val);
-        return {
-          custo: val * multiplier * baseCost,
-          isDynamic: false,
-          unitCost: baseCost,
-          unit: ing.unidadeCompra || 'un',
-          origemNome: baseCost === 0 ? 'Custo Zero (Cadastrado/Manual)' : 'Custo Unitário Definido'
-        };
+    const fonte = resolverFontePreco(ing, visited);
+    if (fonte?.aproximado) alertas.push(`Preço puxado por nome aproximado: "${fonte.aproximado}"`);
+
+    // B. Desmembramento de fardo/caixa: recalcula a partir do preço vivo da embalagem
+    if (ing.isConvertido && typeof ing.fatorConversao === 'number' && ing.fatorConversao > 0) {
+      const baseEmbalagem = fonte && fonte.unitCost > 0 ? fonte.unitCost : parseNum(ing.custoOriginalCompra);
+      if (baseEmbalagem !== null) {
+        return aplicar(
+          baseEmbalagem / ing.fatorConversao,
+          ing.unidadeCompra || 'un',
+          `Convertido (${ing.unidadeOriginalCompra || 'FD'} → ${ing.unidadeCompra || 'KG'})`,
+          !!fonte?.isDynamic
+        );
       }
     }
 
-    // 3. Sub-receita produzida (Insumo ou preparo próprio cadastrado na pasta de fichas)
-    const subFicha = fichas.find(f => normalizeText(f.nome) === normIngNome && f.tipo === 'insumo') ||
-                     fichas.find(f => normalizeText(f.nome) === normIngNome) ||
-                     fichas.find(f => {
-                       const fNorm = normalizeText(f.nome);
-                       return fNorm.length > 3 && (normIngNome.includes(fNorm) || fNorm.includes(normIngNome));
-                     });
-
-    if (subFicha) {
-      const subCustoTotal = calcularCustoFicha(subFicha, visited);
-      const rendInfo = getFichaRendimentoInfo(subFicha);
-      const subCustoUnitario = rendInfo.qtd > 0 ? subCustoTotal / rendInfo.qtd : subCustoTotal;
-      const multiplier = getUnitMultiplier(unit || rendInfo.unidade, rendInfo.unidade, ing.nome, val);
-
-      return {
-        custo: (val * multiplier) * subCustoUnitario,
-        isDynamic: false,
-        unitCost: subCustoUnitario,
-        unit: rendInfo.unidade,
-        origemNome: subFicha.tipo === 'insumo' ? 'Insumo / Pasta' : 'Receita Própria'
-      };
+    // C. Fonte viva (sub-receita, matéria-prima ou planilha)
+    if (fonte) {
+      return aplicar(fonte.unitCost, fonte.unit, fonte.origemNome, fonte.isDynamic);
     }
 
-    // 4. Matérias-Primas cadastradas no Firestore (Prioridade sobre planilha, aceitando custo 0)
-    const mat = materiasPrimas.find(m => normalizeText(m.nome) === normIngNome);
-    if (mat && typeof mat.custo === 'number' && mat.custo >= 0) {
-      const baseUnit = (mat.unidade || 'un').toLowerCase();
-      const multiplier = getUnitMultiplier(unit || baseUnit, baseUnit, ing.nome, val);
-      return {
-        custo: val * multiplier * mat.custo,
-        isDynamic: false,
-        unitCost: mat.custo,
-        unit: mat.unidade,
-        origemNome: mat.custo === 0 ? 'Matéria-Prima (Custo Zero)' : 'Matéria-Prima Cadastrada'
-      };
+    // D. Sem fonte: usa o último custo salvo na ficha (legado), sinalizado
+    if (manualCost !== null) {
+      alertas.push('Sem fonte de preço: usando custo salvo na ficha');
+      return aplicar(manualCost, ing.unidadeCompra || 'un', 'Custo Salvo (sem fonte)', false);
     }
-
-    // 5. Preço dinâmico da planilha (Catálogo ou Compras/NF)
-    const catMatch = findCatalogoItem(ing.nome, catalogoInsumos);
-    if (catMatch && typeof catMatch.custo === 'number' && catMatch.custo >= 0) {
-      const baseUnit = (catMatch.um || 'un').toLowerCase().trim();
-      const multiplier = getUnitMultiplier(unit || baseUnit, baseUnit, ing.nome, val);
-      const custoFinal = val * multiplier * catMatch.custo;
-      return {
-        custo: custoFinal,
-        isDynamic: true,
-        unitCost: catMatch.custo,
-        unit: catMatch.um,
-        origemNome: catMatch.origemPlanilha === 'compras' ? 'Planilha Compras' : 'Planilha'
-      };
-    }
-
-    // 6. Snapshot salvo anteriormente no Firebase
     if (typeof ing.custoCalculado === 'number' && ing.custoCalculado >= 0) {
-      return {
-        custo: ing.custoCalculado,
-        isDynamic: false,
-        origemNome: 'Snapshot Firebase'
-      };
+      alertas.push('Sem fonte de preço: usando último valor calculado');
+      return { custo: ing.custoCalculado, isDynamic: false, origemNome: 'Snapshot Firebase', alertas };
     }
-
-    // 7. Custo legado direto
     if (typeof (ing as any).custo === 'number' && (ing as any).custo >= 0) {
-      return {
-        custo: (ing as any).custo,
-        isDynamic: false,
-        origemNome: 'Custo Legado'
-      };
+      alertas.push('Sem fonte de preço: custo legado');
+      return { custo: (ing as any).custo, isDynamic: false, origemNome: 'Custo Legado', alertas };
     }
 
-    return { custo: 0, isDynamic: false };
+    alertas.push('Sem preço');
+    return { custo: 0, isDynamic: false, alertas };
   };
 
   const calcularCustoIngrediente = (ing: Ingrediente, visited = new Set<string>()): number => {
@@ -1109,6 +1104,46 @@ export default function FichasTecnicasModule() {
 
     return custoTotal;
   };
+
+  // Auditoria: varre todas as fichas e aponta onde o custo não é confiável
+  const [auditoriaSoProblemas, setAuditoriaSoProblemas] = useState<boolean>(true);
+  const auditoria = useMemo(() => {
+    const linhas: { ficha: FichaTecnica; ing: Ingrediente; info: ReturnType<typeof calcularCustoIngredienteInfo>; salvo: number | null; divergente: boolean; problema: boolean }[] = [];
+    const porInsumo = new Map<string, { nome: string; variantes: Map<string, { unitCost: number; unit: string; fichas: string[] }> }>();
+
+    fichas.forEach(ficha => {
+      (ficha.ingredientes || []).forEach(ing => {
+        const info = calcularCustoIngredienteInfo(ing, new Set([ficha.id!]));
+        const salvo = typeof ing.custoCalculado === 'number' ? ing.custoCalculado : null;
+        const divergente = salvo !== null && Math.abs(info.custo - salvo) > Math.max(0.05, salvo * 0.1);
+        const problema = info.alertas.length > 0 || divergente;
+        linhas.push({ ficha, ing, info, salvo, divergente, problema });
+
+        if (info.unitCost !== undefined) {
+          const key = normalizeText(ing.nome);
+          if (!porInsumo.has(key)) porInsumo.set(key, { nome: ing.nome, variantes: new Map() });
+          const g = porInsumo.get(key)!;
+          const vKey = `${info.unitCost.toFixed(2)}|${(info.unit || '').toLowerCase()}`;
+          if (!g.variantes.has(vKey)) g.variantes.set(vKey, { unitCost: info.unitCost, unit: info.unit || '', fichas: [] });
+          g.variantes.get(vKey)!.fichas.push(ficha.nome);
+        }
+      });
+    });
+
+    const insumosInconsistentes = Array.from(porInsumo.values())
+      .filter(g => g.variantes.size > 1)
+      .map(g => ({ nome: g.nome, variantes: Array.from(g.variantes.values()) }));
+
+    linhas.sort((a, b) => Number(b.problema) - Number(a.problema) || a.ficha.nome.localeCompare(b.ficha.nome));
+
+    const linhasComAlerta = linhas.filter(l => l.info.alertas.length > 0).length;
+    const linhasDivergentes = linhas.filter(l => l.divergente).length;
+    const linhasManuais = linhas.filter(l => l.ing.custoManual).length;
+    return {
+      linhas, insumosInconsistentes, linhasComAlerta, linhasDivergentes, linhasManuais,
+      totalProblemas: linhas.filter(l => l.problema).length,
+    };
+  }, [fichas, materiasPrimas, catalogoInsumos]);
 
   // Sugestões unificadas para o Combobox
   const todasSugestoes = useMemo<AutocompleteItem[]>(() => {
@@ -1193,7 +1228,8 @@ export default function FichasTecnicasModule() {
       custoOriginalCompra: item.custo >= 0 ? item.custo : 0,
       unidadeOriginalCompra: item.um || 'UN',
       fatorConversao: undefined,
-      isConvertido: false
+      isConvertido: false,
+      custoManual: false
     };
     setIngredientes(newIngredientes);
     if (conversaoAbertaIndex === index) {
@@ -1203,9 +1239,15 @@ export default function FichasTecnicasModule() {
 
   const handleIngredienteChange = (index: number, field: keyof Ingrediente, value: string) => {
     const newIngredientes = [...ingredientes];
-    newIngredientes[index][field] = value;
+    (newIngredientes[index] as any)[field] = value;
+
+    // Digitar custo ou unidade = o usuário assumiu o preço desta linha
+    if (field === 'custoCompra' || field === 'unidadeCompra') {
+      newIngredientes[index].custoManual = true;
+    }
     
     if (field === 'nome') {
+      newIngredientes[index].custoManual = false;
       const match = todasSugestoes.find(s => normalizeText(s.nome) === normalizeText(value));
       if (match) {
         if (!newIngredientes[index].unidadeCompra) newIngredientes[index].unidadeCompra = match.um;
@@ -1273,7 +1315,8 @@ export default function FichasTecnicasModule() {
       custoCompra: novoCustoUnitario.toFixed(2),
       unidadeCompra: conversaoDraft.novaUnidade.toUpperCase(),
       fatorConversao: fatorNum,
-      isConvertido: true
+      isConvertido: true,
+      custoManual: false
     };
 
     setIngredientes(newIngredientes);
@@ -1288,11 +1331,18 @@ export default function FichasTecnicasModule() {
       custoCompra: currentIng.custoOriginalCompra ? currentIng.custoOriginalCompra.toFixed(2) : currentIng.custoCompra,
       unidadeCompra: currentIng.unidadeOriginalCompra || 'UN',
       fatorConversao: undefined,
-      isConvertido: false
+      isConvertido: false,
+      custoManual: false
     };
 
     setIngredientes(newIngredientes);
     setConversaoAbertaIndex(null);
+  };
+
+  const handleUsarPrecoVivo = (idx: number) => {
+    const newIngredientes = [...ingredientes];
+    newIngredientes[idx] = { ...newIngredientes[idx], custoManual: false };
+    setIngredientes(newIngredientes);
   };
 
   // Salvamento: Salva array completo e precoVenda no Firebase
@@ -1317,7 +1367,8 @@ export default function FichasTecnicasModule() {
           fatorConversao: ing.fatorConversao || null,
           unidadeOriginalCompra: ing.unidadeOriginalCompra || null,
           custoOriginalCompra: ing.custoOriginalCompra || null,
-          isConvertido: !!ing.isConvertido
+          isConvertido: !!ing.isConvertido,
+          custoManual: !!ing.custoManual
         };
       });
 
@@ -1463,7 +1514,7 @@ export default function FichasTecnicasModule() {
     }
   };
 
-  const handleSetFilterTipo = (t: "bebida" | "comida" | "insumo" | "materias_primas") => {
+  const handleSetFilterTipo = (t: "bebida" | "comida" | "insumo" | "materias_primas" | "auditoria") => {
     setFilterTipo(t);
     setFilterCategoria("todas");
   };
@@ -1631,9 +1682,97 @@ export default function FichasTecnicasModule() {
             <Package className="h-4 w-4" />
             Matérias-Primas
           </button>
+          <button
+            onClick={() => handleSetFilterTipo("auditoria")}
+            className={`flex-1 min-w-[140px] py-4 text-sm font-medium transition-colors border-b-2 flex items-center justify-center gap-2 ${
+              filterTipo === "auditoria" 
+                ? "border-rose-500 text-rose-400 bg-rose-500/5" 
+                : "border-transparent text-slate-400 hover:text-slate-200 hover:bg-slate-800/50"
+            }`}
+          >
+            <AlertTriangle className="h-4 w-4" />
+            Auditoria{auditoria.totalProblemas > 0 ? ` (${auditoria.totalProblemas})` : ''}
+          </button>
         </div>
 
-        {filterTipo !== 'materias_primas' && (
+        {filterTipo === 'auditoria' && (
+          <div className="p-4 space-y-4">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <h3 className="text-white font-semibold">Auditoria de custos</h3>
+                <p className="text-xs text-slate-400">
+                  Linha por linha: de onde vem o preço, o custo atual e o que foi salvo na ficha. Corrija editando a ficha.
+                </p>
+              </div>
+              <label className="text-xs text-slate-300 flex items-center gap-2 cursor-pointer">
+                <input type="checkbox" checked={auditoriaSoProblemas} onChange={(e) => setAuditoriaSoProblemas(e.target.checked)} />
+                Mostrar só problemas
+              </label>
+            </div>
+
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              {[
+                ['Linhas com alerta', auditoria.linhasComAlerta],
+                ['Custo mudou vs salvo', auditoria.linhasDivergentes],
+                ['Preço manual travado', auditoria.linhasManuais],
+                ['Insumos c/ preço diferente', auditoria.insumosInconsistentes.length],
+              ].map(([label, n]) => (
+                <div key={label as string} className="bg-slate-950/60 border border-slate-800 rounded-lg p-3">
+                  <div className={`text-2xl font-bold ${Number(n) > 0 ? 'text-rose-400' : 'text-emerald-400'}`}>{n as number}</div>
+                  <div className="text-[11px] text-slate-400 uppercase tracking-wide">{label as string}</div>
+                </div>
+              ))}
+            </div>
+
+            {auditoria.insumosInconsistentes.length > 0 && (
+              <div className="bg-rose-500/5 border border-rose-500/30 rounded-lg p-3 space-y-1">
+                <p className="text-sm font-semibold text-rose-300">Mesmo insumo com custo unitário diferente entre fichas</p>
+                {auditoria.insumosInconsistentes.map(g => (
+                  <p key={g.nome} className="text-xs text-slate-300">
+                    <strong className="text-white">{g.nome}</strong>: {g.variantes.map(v => `R$ ${v.unitCost.toFixed(2)}/${v.unit} (${v.fichas.join(', ')})`).join(' · ')}
+                  </p>
+                ))}
+              </div>
+            )}
+
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs">
+                <thead className="text-slate-400 border-b border-slate-800">
+                  <tr>
+                    <th className="text-left py-2 pr-2">Ficha</th>
+                    <th className="text-left py-2 pr-2">Ingrediente</th>
+                    <th className="text-left py-2 pr-2">Qtd</th>
+                    <th className="text-left py-2 pr-2">Fonte do preço</th>
+                    <th className="text-right py-2 pr-2">R$ unit.</th>
+                    <th className="text-right py-2 pr-2">Custo atual</th>
+                    <th className="text-right py-2 pr-2">Salvo</th>
+                    <th className="text-left py-2">Alertas</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {auditoria.linhas
+                    .filter(l => !auditoriaSoProblemas || l.problema)
+                    .map((l, i) => (
+                    <tr key={i} className={`border-b border-slate-800/50 ${l.problema ? 'bg-rose-500/5' : ''}`}>
+                      <td className="py-1.5 pr-2 text-slate-200">
+                        <button type="button" className="hover:underline text-left" onClick={() => handleEdit(l.ficha)}>{l.ficha.nome}</button>
+                      </td>
+                      <td className="py-1.5 pr-2 text-slate-300">{l.ing.nome}</td>
+                      <td className="py-1.5 pr-2 font-mono text-slate-400">{l.ing.quantidade}</td>
+                      <td className="py-1.5 pr-2 text-slate-400">{l.info.origemNome || '—'}{l.ing.custoManual ? ' · MANUAL' : ''}</td>
+                      <td className="py-1.5 pr-2 text-right font-mono text-slate-300">{l.info.unitCost !== undefined ? `${l.info.unitCost.toFixed(2)}/${l.info.unit}` : '—'}</td>
+                      <td className="py-1.5 pr-2 text-right font-mono text-emerald-400">{l.info.custo.toFixed(2)}</td>
+                      <td className={`py-1.5 pr-2 text-right font-mono ${l.divergente ? 'text-amber-400' : 'text-slate-500'}`}>{l.salvo !== null ? l.salvo.toFixed(2) : '—'}</td>
+                      <td className="py-1.5 text-rose-300">{l.info.alertas.join(' · ')}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+        {filterTipo !== 'materias_primas' && filterTipo !== 'auditoria' && (
         <>
           <div className="p-4 border-b border-slate-800 bg-slate-900/50 flex flex-col sm:flex-row gap-4">
             <div className="relative flex-1">
@@ -1955,6 +2094,11 @@ export default function FichasTecnicasModule() {
                                             {custoInfo.origemNome}
                                           </span>
                                         )}
+                                        {custoInfo.alertas.map((a, ai) => (
+                                          <span key={ai} className="text-[10px] bg-rose-500/10 text-rose-300 border border-rose-500/30 px-1.5 py-0.2 rounded font-medium inline-flex items-center gap-1">
+                                            <AlertTriangle className="h-2.5 w-2.5" /> {a}
+                                          </span>
+                                        ))}
                                       </span>
                                       <div className="flex items-center gap-3">
                                         <span className="text-slate-400 font-mono font-medium">{ing.quantidade}</span>
@@ -2492,8 +2636,11 @@ export default function FichasTecnicasModule() {
                                   type="number"
                                   step="0.01"
                                   placeholder="0.00"
-                                  value={ing.custoCompra || ''}
+                                  value={ing.custoManual
+                                    ? (ing.custoCompra || '')
+                                    : (custoInfo.unitCost !== undefined ? Number(custoInfo.unitCost.toFixed(4)).toString() : (ing.custoCompra || ''))}
                                   onChange={(e) => handleIngredienteChange(idx, 'custoCompra', e.target.value)}
+                                  title={ing.custoManual ? 'Custo digitado à mão (não acompanha a planilha)' : 'Preço vivo: acompanha a planilha / sub-receita. Digite para travar um valor manual.'}
                                   className="w-24 bg-slate-950 border border-slate-700 rounded px-2 py-1 text-white font-mono focus:border-emerald-500 focus:outline-none"
                                 />
                               </div>
@@ -2528,6 +2675,17 @@ export default function FichasTecnicasModule() {
                                   {custoInfo.origemNome}
                                 </span>
                               )}
+
+                              {ing.custoManual && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleUsarPrecoVivo(idx)}
+                                  className="inline-flex items-center gap-1 text-[10px] text-amber-300 bg-amber-500/10 px-2 py-0.5 rounded border border-amber-500/30 font-medium hover:bg-amber-500/20"
+                                  title="Voltar a puxar o preço da planilha / sub-receita"
+                                >
+                                  <RotateCcw className="h-3 w-3" /> Manual · usar preço vivo
+                                </button>
+                              )}
                             </div>
 
                             <div className="flex items-center gap-1 font-mono text-xs">
@@ -2537,6 +2695,16 @@ export default function FichasTecnicasModule() {
                               </span>
                             </div>
                           </div>
+
+                          {custoInfo.alertas.length > 0 && (
+                            <div className="flex flex-wrap gap-1.5">
+                              {custoInfo.alertas.map((a, ai) => (
+                                <span key={ai} className="text-[11px] bg-rose-500/10 text-rose-300 border border-rose-500/30 px-2 py-0.5 rounded inline-flex items-center gap-1">
+                                  <AlertTriangle className="h-3 w-3" /> {a}
+                                </span>
+                              ))}
+                            </div>
+                          )}
 
                           {/* GAVETA IN-LINE DE CONVERSÃO / DESMEMBRAMENTO */}
                           {conversaoAbertaIndex === idx && (
