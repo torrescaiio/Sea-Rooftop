@@ -21,6 +21,11 @@ export interface ProdutoCompra {
   unidadeBase: UnidadeBase;
   categoria?: string;
   aliases?: string[]; // nomes normalizados que já foram ligados a este produto em cotações
+  fornecedorIds?: string[];      // catálogo: fornecedores que trabalham com o produto (mesmo sem preço)
+  precoReferencia?: number;      // R$ por unidade-base vindo do inventário (não é cotação)
+  referenciaEmbalagem?: { preco: number; conteudo: number };
+  referenciaFonte?: string;
+  conferir?: string;             // motivos para revisar (vazio = ok)
   createdAt?: string;
 }
 
@@ -283,4 +288,87 @@ export const linkWhatsApp = (telefone: string | undefined, texto: string): strin
   let dig = (telefone || '').replace(/\D/g, '');
   if (dig && dig.length <= 11) dig = '55' + dig;
   return `https://wa.me/${dig}?text=${encodeURIComponent(texto)}`;
+};
+
+// ---------------------------------------------------------------------------
+// Base de produtos (planilha gerada a partir do inventário)
+// ---------------------------------------------------------------------------
+export interface LinhaBase {
+  nome: string;
+  categoria: string;
+  unidadeBase: UnidadeBase;
+  conteudo: number;
+  preco: number | null;
+  fornecedores: string[];
+  conferir: string;
+}
+export interface FornecedorBase { nome: string; whatsapp?: string; pedidoMinimo?: number; diasEntrega?: string }
+
+const achaCabecalho = (rows: any[][], obrigatorios: string[]) => {
+  for (let i = 0; i < Math.min(rows.length, 15); i++) {
+    const cols = (rows[i] || []).map(c => normalizar((c ?? '').toString()));
+    if (obrigatorios.every(o => cols.some(c => c.startsWith(normalizar(o))))) {
+      const idx = (nome: string) => cols.findIndex(c => c.startsWith(normalizar(nome)));
+      return { linha: i, idx };
+    }
+  }
+  return null;
+};
+
+export const lerBaseProdutos = (rows: any[][]): LinhaBase[] => {
+  const h = achaCabecalho(rows, ['Produto', 'Comparar por']);
+  if (!h) return [];
+  const c = {
+    nome: h.idx('Produto'), cat: h.idx('Categoria'), base: h.idx('Comparar por'), cont: h.idx('Qtd na embalagem'),
+    preco: h.idx('Preco inventario'), forn: h.idx('Fornecedores'), conf: h.idx('O que conferir'),
+  };
+  const out: LinhaBase[] = [];
+  for (const r of rows.slice(h.linha + 1)) {
+    const nome = (r?.[c.nome] ?? '').toString().trim();
+    if (!nome) continue;
+    const b = (r[c.base] ?? '').toString().trim().toUpperCase();
+    const unidadeBase: UnidadeBase = b === 'KG' || b === 'L' ? b : 'UN';
+    const conteudo = parseNumeroBR(r[c.cont]);
+    const preco = parseNumeroBR(r[c.preco]);
+    const conf = c.conf >= 0 ? (r[c.conf] ?? '').toString().trim() : '';
+    out.push({
+      nome,
+      categoria: c.cat >= 0 ? (r[c.cat] ?? '').toString().trim() : '',
+      unidadeBase,
+      conteudo: isFinite(conteudo) && conteudo > 0 ? conteudo : 1,
+      preco: isFinite(preco) && preco > 0 ? preco : null,
+      fornecedores: c.forn >= 0 ? (r[c.forn] ?? '').toString().split('/').map((x: string) => x.trim()).filter(Boolean) : [],
+      conferir: conf.split('|').map((x: string) => x.trim()).filter(x => x && x !== 'Sem fornecedor').join(' | '),
+    });
+  }
+  return out;
+};
+
+export const lerBaseFornecedores = (rows: any[][]): FornecedorBase[] => {
+  const h = achaCabecalho(rows, ['Fornecedor']);
+  if (!h) return [];
+  const c = { nome: h.idx('Fornecedor'), wa: h.idx('WhatsApp'), min: h.idx('Pedido minimo'), ent: h.idx('Dias de entrega') };
+  return rows.slice(h.linha + 1)
+    .map(r => ({
+      nome: (r?.[c.nome] ?? '').toString().trim(),
+      whatsapp: c.wa >= 0 && r[c.wa] ? r[c.wa].toString().trim() : undefined,
+      pedidoMinimo: c.min >= 0 && r[c.min] ? parseNumeroBR(r[c.min]) || undefined : undefined,
+      diasEntrega: c.ent >= 0 && r[c.ent] ? r[c.ent].toString().trim() : undefined,
+    }))
+    .filter(f => f.nome);
+};
+
+// Estimativa pelo preço de referência (embalagens inteiras quando a embalagem é conhecida)
+export const estimativaReferencia = (qtd: number, p: ProdutoCompra): { total: number; embalagens?: number } | null => {
+  if (p.referenciaEmbalagem && p.referenciaEmbalagem.preco > 0 && p.referenciaEmbalagem.conteudo > 0) {
+    const embalagens = Math.max(1, Math.ceil(qtd / p.referenciaEmbalagem.conteudo - 1e-9));
+    return { total: embalagens * p.referenciaEmbalagem.preco, embalagens };
+  }
+  if (p.precoReferencia && p.precoReferencia > 0) return { total: qtd * p.precoReferencia };
+  return null;
+};
+
+export const mensagemPedidoPreco = (fornecedor: string, itens: { nome: string; qtd?: number; unidade?: string }[]): string => {
+  const linhas = itens.map(i => `• ${i.nome}${i.qtd ? ` (${formatQtd(i.qtd)} ${i.unidade || ''})`.replace(' )', ')') : ''}`).join('\n');
+  return `Olá, ${fornecedor}! Aqui é do Sea Rooftop. Pode me passar o preço atual destes itens?\n\n${linhas}\n\nSe possível, informe a embalagem (kg, caixa, fardo). Obrigado!`;
 };

@@ -2,13 +2,15 @@ import React, { useEffect, useMemo, useState } from "react";
 import { appDb } from "../firebase";
 import {
   ShoppingCart, Truck, Upload, Tag, History, Plus, Trash2, Search, AlertTriangle,
-  Check, X, Copy, Send, Trophy, Pencil, ChevronDown, ChevronUp, ClipboardList, FileSpreadsheet
+  Check, X, Copy, Send, Trophy, Pencil, ChevronDown, ChevronUp, ClipboardList, FileSpreadsheet,
+  MessageCircle, Database
 } from "lucide-react";
 import {
   Fornecedor, ProdutoCompra, Cotacao, UnidadeBase, OrigemCotacao, DIAS_VALIDADE_COTACAO,
   normalizar, parseNumeroBR, formatBRL, formatQtd, lerCotacaoTexto, linhasPlanilhaParaTexto,
   sugerirUnidadeBase, conteudoPara, casarProduto, precoPorBase, diasDesde, cotacoesVigentes,
-  opcoesParaQuantidade, linkWhatsApp, DeteccaoEmbalagem, OpcaoCompra
+  opcoesParaQuantidade, linkWhatsApp, DeteccaoEmbalagem, OpcaoCompra,
+  lerBaseProdutos, lerBaseFornecedores, LinhaBase, FornecedorBase, estimativaReferencia, mensagemPedidoPreco
 } from "../cotacoesUtils";
 
 // ---------------------------------------------------------------------------
@@ -203,6 +205,7 @@ export default function CotacoesModule() {
     escolhida?: OpcaoCompra;
     economia: number;
     velha: boolean;
+    estimativa: { total: number; embalagens?: number } | null;
   }
 
   const calc: LinhaCalc[] = useMemo(() => lista.map(item => {
@@ -213,7 +216,8 @@ export default function CotacoesModule() {
     const segunda = opcoes.find(o => o !== melhor);
     const economia = escolhida && escolhida === melhor && segunda ? segunda.total - melhor.total : 0;
     const velha = !!escolhida && diasDesde(escolhida.cotacao.data) > DIAS_VALIDADE_COTACAO;
-    return { item, produto, opcoes, escolhida, economia, velha };
+    const estimativa = !escolhida && produto ? estimativaReferencia(item.qtd, produto) : null;
+    return { item, produto, opcoes, escolhida, economia, velha, estimativa };
   }), [lista, produtoPorId, vigentes]);
 
   const porFornecedor = useMemo(() => {
@@ -229,7 +233,27 @@ export default function CotacoesModule() {
   }, [calc]);
 
   const semPreco = calc.filter(c => !c.escolhida);
+  const totalEstimado = semPreco.reduce((s, c) => s + (c.estimativa?.total || 0), 0);
   const totalPedido = porFornecedor.reduce((s, g) => s + g.subtotal, 0);
+  const nomesCatalogo = (p?: ProdutoCompra) => (p?.fornecedorIds || []).filter(id => fornecedorPorId.has(id)).map(nomeForn);
+
+  // Pedido de preço: fornecedores do catálogo que ainda não têm cotação válida para os itens da lista
+  const pedidosPreco = useMemo(() => {
+    const m = new Map<string, { nome: string; qtd: number; unidade: string }[]>();
+    calc.forEach(c => {
+      if (!c.produto) return;
+      const vig = vigentes.get(c.produto.id!) || [];
+      (c.produto.fornecedorIds || []).forEach(fid => {
+        if (!fornecedorPorId.has(fid)) return;
+        const cot = vig.find(v => v.fornecedorId === fid);
+        if (cot && diasDesde(cot.data) <= DIAS_VALIDADE_COTACAO) return;
+        if (!m.has(fid)) m.set(fid, []);
+        m.get(fid)!.push({ nome: c.produto!.nome, qtd: c.item.qtd, unidade: c.produto!.unidadeBase.toLowerCase() });
+      });
+    });
+    return Array.from(m.entries()).map(([fid, itens]) => ({ fid, itens })).sort((a, b) => b.itens.length - a.itens.length);
+  }, [calc, vigentes, fornecedorPorId]);
+  const [mostrarPedirPreco, setMostrarPedirPreco] = useState(true);
   const economiaTotal = calc.reduce((s, c) => s + c.economia, 0);
 
   const mensagemFornecedor = (fid: string, linhas: LinhaCalc[], subtotal: number) => {
@@ -289,6 +313,8 @@ export default function CotacoesModule() {
   // PRODUTOS & PREÇOS
   // =========================================================================
   const [buscaPreco, setBuscaPreco] = useState("");
+  const [filtroPreco, setFiltroPreco] = useState<"todos" | "conferir" | "semcot">("todos");
+  const [refEdit, setRefEdit] = useState<{ preco: string; conteudo: string }>({ preco: "", conteudo: "" });
   const [produtoAberto, setProdutoAberto] = useState<string | null>(null);
   const [novoProduto, setNovoProduto] = useState<{ nome: string; unidadeBase: UnidadeBase; categoria: string } | null>(null);
   const [editProduto, setEditProduto] = useState<ProdutoCompra | null>(null);
@@ -298,8 +324,14 @@ export default function CotacoesModule() {
     const q = normalizar(buscaPreco);
     return [...produtos]
       .filter(p => !q || normalizar(p.nome).includes(q) || normalizar(p.categoria || "").includes(q))
-      .sort((a, b) => a.nome.localeCompare(b.nome));
-  }, [produtos, buscaPreco]);
+      .filter(p => filtroPreco === "todos" || (filtroPreco === "conferir" ? !!p.conferir : !(vigentes.get(p.id!) || []).length))
+      .sort((a, b) => (a.categoria || "").localeCompare(b.categoria || "") || a.nome.localeCompare(b.nome));
+  }, [produtos, buscaPreco, filtroPreco, vigentes]);
+  const totalConferir = produtos.filter(p => p.conferir).length;
+
+  const atualizarCatalogo = async (p: ProdutoCompra, ids: string[]) => {
+    await appDb.update("produtos_compra", p.id!, { fornecedorIds: Array.from(new Set(ids)) });
+  };
 
   const salvarNovoProduto = async () => {
     if (!novoProduto?.nome.trim()) return;
@@ -314,7 +346,12 @@ export default function CotacoesModule() {
 
   const salvarEdicaoProduto = async () => {
     if (!editProduto?.id) return;
-    await appDb.update("produtos_compra", editProduto.id, { nome: editProduto.nome.trim(), unidadeBase: editProduto.unidadeBase, categoria: editProduto.categoria || "" });
+    const preco = parseNumeroBR(refEdit.preco);
+    const conteudo = parseNumeroBR(refEdit.conteudo);
+    const ref = isFinite(preco) && preco > 0 && isFinite(conteudo) && conteudo > 0
+      ? { precoReferencia: preco / conteudo, referenciaEmbalagem: { preco, conteudo } }
+      : (refEdit.preco.trim() === "" ? { precoReferencia: null, referenciaEmbalagem: null } : {});
+    await appDb.update("produtos_compra", editProduto.id, { nome: editProduto.nome.trim(), unidadeBase: editProduto.unidadeBase, categoria: editProduto.categoria || "", ...ref });
     setEditProduto(null);
   };
 
@@ -350,6 +387,124 @@ export default function CotacoesModule() {
   const [impTexto, setImpTexto] = useState("");
   const [revisao, setRevisao] = useState<LinhaRevisao[] | null>(null);
   const [salvandoImp, setSalvandoImp] = useState(false);
+  const [impModo, setImpModo] = useState<"cotacao" | "base">("cotacao");
+
+  // Base de produtos (planilha do inventário)
+  const [baseLida, setBaseLida] = useState<{ arquivo: string; produtos: LinhaBase[]; fornecedores: FornecedorBase[] } | null>(null);
+  const [baseAtualizar, setBaseAtualizar] = useState(true);
+  const [baseProgresso, setBaseProgresso] = useState<string | null>(null);
+  const [importandoBase, setImportandoBase] = useState(false);
+
+  const lerArquivoBase = async (file: File) => {
+    try {
+      const XLSX = await import("xlsx");
+      const wb = XLSX.read(await file.arrayBuffer(), { type: "array" });
+      const aba = (nome: string) => wb.SheetNames.find((n: string) => normalizar(n) === normalizar(nome));
+      const abaProd = aba("Produtos") || wb.SheetNames[0];
+      const rowsProd: any[][] = XLSX.utils.sheet_to_json(wb.Sheets[abaProd], { header: 1, raw: true });
+      const abaForn = aba("Fornecedores");
+      const rowsForn: any[][] = abaForn ? XLSX.utils.sheet_to_json(wb.Sheets[abaForn], { header: 1, raw: true }) : [];
+      const prods = lerBaseProdutos(rowsProd);
+      if (prods.length === 0) {
+        setErro('Não encontrei a aba "Produtos" com as colunas "Produto" e "Comparar por". Use a planilha Base de Compras.');
+        return;
+      }
+      setBaseLida({ arquivo: file.name, produtos: prods, fornecedores: lerBaseFornecedores(rowsForn) });
+    } catch (e: any) {
+      setErro("Não consegui ler o arquivo: " + (e?.message || e));
+    }
+  };
+
+  const resumoBase = useMemo(() => {
+    if (!baseLida) return null;
+    const existentes = new Set(produtos.map(p => normalizar(p.nome)));
+    const fornExist = new Set(fornecedores.map(f => normalizar(f.nome)));
+    const nomesForn = new Set<string>();
+    baseLida.fornecedores.forEach(f => nomesForn.add(normalizar(f.nome)));
+    baseLida.produtos.forEach(p => p.fornecedores.forEach(n => nomesForn.add(normalizar(n))));
+    return {
+      novos: baseLida.produtos.filter(p => !existentes.has(normalizar(p.nome))).length,
+      existentes: baseLida.produtos.filter(p => existentes.has(normalizar(p.nome))).length,
+      conferir: baseLida.produtos.filter(p => p.conferir || !p.preco).length,
+      fornNovos: Array.from(nomesForn).filter(n => !fornExist.has(n)).length,
+    };
+  }, [baseLida, produtos, fornecedores]);
+
+  const importarBase = async () => {
+    if (!baseLida) return;
+    setImportandoBase(true);
+    try {
+      // 1. Fornecedores
+      const fornPorNome = new Map(fornecedores.map(f => [normalizar(f.nome), f]));
+      const alvo = new Map<string, FornecedorBase>();
+      baseLida.fornecedores.forEach(f => alvo.set(normalizar(f.nome), f));
+      baseLida.produtos.forEach(p => p.fornecedores.forEach(n => { if (!alvo.has(normalizar(n))) alvo.set(normalizar(n), { nome: n }); }));
+      const idForn = new Map<string, string>();
+      let fornNovos = 0;
+      for (const [k, fb] of Array.from(alvo.entries())) {
+        const ex = fornPorNome.get(k);
+        if (ex) {
+          idForn.set(k, ex.id!);
+          const patch: any = {};
+          if (fb.whatsapp && !ex.whatsapp) patch.whatsapp = fb.whatsapp;
+          if (fb.pedidoMinimo && !ex.pedidoMinimo) patch.pedidoMinimo = fb.pedidoMinimo;
+          if (fb.diasEntrega && !ex.diasEntrega) patch.diasEntrega = fb.diasEntrega;
+          if (Object.keys(patch).length) await appDb.update("fornecedores", ex.id!, patch);
+        } else {
+          const novo = await appDb.add("fornecedores", { nome: fb.nome, whatsapp: fb.whatsapp || "", pedidoMinimo: fb.pedidoMinimo || 0, diasEntrega: fb.diasEntrega || "", obs: "" });
+          idForn.set(k, novo.id);
+          fornNovos++;
+        }
+        setBaseProgresso(`Fornecedores: ${idForn.size} de ${alvo.size}`);
+      }
+
+      // 2. Produtos (em lotes)
+      const prodPorNome = new Map(produtos.map(p => [normalizar(p.nome), p]));
+      const comCotacao = new Set(cotacoes.map(c => c.produtoId));
+      const fonte = baseLida.arquivo.replace(/\.[^.]+$/, "");
+      let novos = 0, atualizados = 0, feitos = 0;
+      const tarefas = baseLida.produtos.map(lb => async () => {
+        const fIds = Array.from(new Set(lb.fornecedores.map(n => idForn.get(normalizar(n))).filter(Boolean) as string[]));
+        const ref = lb.preco
+          ? { precoReferencia: lb.preco / lb.conteudo, referenciaEmbalagem: { preco: lb.preco, conteudo: lb.conteudo } }
+          : { precoReferencia: null, referenciaEmbalagem: null };
+        const conferir = lb.conferir || (lb.preco ? "" : "Sem preço");
+        const ex = prodPorNome.get(normalizar(lb.nome));
+        if (!ex) {
+          await appDb.add("produtos_compra", { nome: lb.nome, unidadeBase: lb.unidadeBase, categoria: lb.categoria, aliases: [], fornecedorIds: fIds, ...ref, referenciaFonte: fonte, conferir });
+          novos++;
+        } else if (baseAtualizar) {
+          const patch: any = {
+            categoria: ex.categoria || lb.categoria,
+            fornecedorIds: Array.from(new Set([...(ex.fornecedorIds || []), ...fIds])),
+            ...ref, referenciaFonte: fonte, conferir,
+          };
+          // não muda a unidade de quem já tem cotação (as cotações foram lançadas naquela unidade)
+          if (!comCotacao.has(ex.id!)) patch.unidadeBase = lb.unidadeBase;
+          else if (ex.unidadeBase !== lb.unidadeBase) {
+            patch.precoReferencia = null;
+            patch.referenciaEmbalagem = null;
+            patch.conferir = [conferir, `Base em ${lb.unidadeBase}, produto já cotado em ${ex.unidadeBase}: referência não importada`].filter(Boolean).join(" | ");
+          }
+          await appDb.update("produtos_compra", ex.id!, patch);
+          atualizados++;
+        }
+        feitos++;
+      });
+      for (let i = 0; i < tarefas.length; i += 15) {
+        await Promise.all(tarefas.slice(i, i + 15).map(t => t()));
+        setBaseProgresso(`Produtos: ${feitos} de ${tarefas.length}`);
+      }
+      setBaseLida(null);
+      setBaseProgresso(null);
+      setMsg(`Base importada: ${novos} produto(s) novo(s), ${atualizados} atualizado(s), ${fornNovos} fornecedor(es) novo(s).`);
+      setAba("precos");
+    } catch (e: any) {
+      setErro("Erro ao importar a base: " + (e?.message || e) + ". O que já foi salvo fica salvo; pode importar de novo que ele atualiza sem duplicar.");
+    } finally {
+      setImportandoBase(false);
+    }
+  };
 
   const lerArquivo = async (file: File) => {
     try {
@@ -492,8 +647,21 @@ export default function CotacoesModule() {
     const n = cotacoes.filter(c => c.fornecedorId === f.id).length;
     if (!confirm(`Excluir ${f.nome} e ${n} cotação(ões) dele?`)) return;
     for (const c of cotacoes.filter(c => c.fornecedorId === f.id)) await appDb.delete("cotacoes", c.id!);
+    for (const p of produtos.filter(p => (p.fornecedorIds || []).includes(f.id!))) {
+      await appDb.update("produtos_compra", p.id!, { fornecedorIds: (p.fornecedorIds || []).filter(x => x !== f.id) });
+    }
     await appDb.delete("fornecedores", f.id!);
   };
+
+  const catalogoPorFornecedor = useMemo(() => {
+    const m = new Map<string, ProdutoCompra[]>();
+    produtos.forEach(p => (p.fornecedorIds || []).forEach(id => {
+      if (!m.has(id)) m.set(id, []);
+      m.get(id)!.push(p);
+    }));
+    m.forEach(l => l.sort((a, b) => a.nome.localeCompare(b.nome)));
+    return m;
+  }, [produtos]);
 
   const rankingFornecedor = useMemo(() => {
     const ganha = new Map<string, number>();
@@ -595,7 +763,7 @@ export default function CotacoesModule() {
           {lista.length === 0 ? (
             <div className={`${card} p-8 text-center text-sm text-slate-500`}>
               Lista vazia. Adicione itens ou puxe as requisições aprovadas do Ricardo e do Saulo.
-              {cotacoes.length === 0 && <p className="mt-2">Antes, cadastre fornecedores e importe as primeiras cotações.</p>}
+              {produtos.length === 0 && <p className="mt-2">Comece importando a Base de Compras em Importar cotação → Base de produtos.</p>}
             </div>
           ) : (
             <>
@@ -603,6 +771,7 @@ export default function CotacoesModule() {
                 <div className={`${card} p-4`}>
                   <div className="text-[11px] uppercase tracking-wide text-slate-500">Total do pedido</div>
                   <div className="text-2xl font-bold text-white">{formatBRL(totalPedido)}</div>
+                  {totalEstimado > 0 && <div className="text-[11px] text-amber-300">+ {formatBRL(totalEstimado)} estimado (inventário) nos itens sem cotação</div>}
                 </div>
                 <div className={`${card} p-4`}>
                   <div className="text-[11px] uppercase tracking-wide text-slate-500">Economia vs. 2ª melhor opção</div>
@@ -622,6 +791,14 @@ export default function CotacoesModule() {
                       <span className="text-white">{item.nome}</span>
                       <span className="text-slate-400 font-mono">{formatQtd(item.qtd)}{produto ? ` ${produto.unidadeBase}` : ""}</span>
                       <span className="text-xs text-slate-500">{produto ? "nenhuma cotação para este produto" : "produto não cadastrado"}</span>
+                      {produto && calc.find(c => c.item.key === item.key)?.estimativa && (
+                        <span className="text-xs text-amber-300">
+                          estimativa {formatBRL(calc.find(c => c.item.key === item.key)!.estimativa!.total)} (inventário{produto.conferir ? ", conferir" : ""})
+                        </span>
+                      )}
+                      {produto && nomesCatalogo(produto).length > 0 && (
+                        <span className="text-xs text-slate-400">trabalham com isso: {nomesCatalogo(produto).join(", ")}</span>
+                      )}
                       {!produto && (
                         <select className={`${inputCls} py-1 text-xs`} value=""
                           onChange={e => {
@@ -637,6 +814,39 @@ export default function CotacoesModule() {
                       <button onClick={() => setLista(l => l.filter(i => i.key !== item.key))} className="text-slate-500 hover:text-rose-400"><Trash2 className="h-4 w-4" /></button>
                     </div>
                   ))}
+                </div>
+              )}
+
+              {pedidosPreco.length > 0 && (
+                <div className="bg-sky-500/5 border border-sky-500/30 rounded-xl">
+                  <button onClick={() => setMostrarPedirPreco(v => !v)} className="w-full flex justify-between items-center px-4 py-3 text-left">
+                    <span className="text-sm font-semibold text-sky-300 flex items-center gap-2">
+                      <MessageCircle className="h-4 w-4" /> Pedir preço a {pedidosPreco.length} fornecedor(es) sem cotação atual
+                    </span>
+                    {mostrarPedirPreco ? <ChevronUp className="h-4 w-4 text-sky-300" /> : <ChevronDown className="h-4 w-4 text-sky-300" />}
+                  </button>
+                  {mostrarPedirPreco && (
+                    <div className="px-4 pb-4 space-y-2">
+                      <p className="text-[11px] text-slate-400">Fornecedores do catálogo que trabalham com itens desta lista e ainda não mandaram preço (ou o preço tem mais de {DIAS_VALIDADE_COTACAO} dias). Quando responderem, cole a resposta em Importar cotação.</p>
+                      {pedidosPreco.map(pp => {
+                        const f = fornecedorPorId.get(pp.fid);
+                        const texto = mensagemPedidoPreco(nomeForn(pp.fid), pp.itens);
+                        return (
+                          <div key={pp.fid} className="flex flex-wrap items-center justify-between gap-2 border-t border-slate-800 pt-2">
+                            <div className="min-w-0">
+                              <div className="text-sm text-white">{nomeForn(pp.fid)} <span className="text-slate-500 text-xs">· {pp.itens.length} item(ns)</span></div>
+                              <div className="text-[11px] text-slate-500 truncate max-w-[520px]">{pp.itens.map(i => i.nome).join(", ")}</div>
+                            </div>
+                            <div className="flex gap-2">
+                              <button onClick={() => copiar(texto)} className={`${btnSec} text-xs py-1`}><Copy className="h-3.5 w-3.5" /> Copiar</button>
+                              {f?.whatsapp && <a href={linkWhatsApp(f.whatsapp, texto)} target="_blank" rel="noreferrer" className={`${btnSec} text-xs py-1`}><Send className="h-3.5 w-3.5" /> WhatsApp</a>}
+                              <button onClick={() => { setImpFornecedor(pp.fid); setImpModo("cotacao"); setAba("importar"); }} className={`${btnSec} text-xs py-1`}><Upload className="h-3.5 w-3.5" /> Colar resposta</button>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -759,6 +969,12 @@ export default function CotacoesModule() {
             </div>
             <button onClick={() => setNovoProduto({ nome: "", unidadeBase: "KG", categoria: "" })} className={btnPrim}><Plus className="h-4 w-4" /> Novo produto</button>
           </div>
+          <div className="flex gap-2 flex-wrap">
+            {([["todos", `Todos (${produtos.length})`], ["conferir", `Conferir (${totalConferir})`], ["semcot", "Sem cotação"]] as const).map(([id, label]) => (
+              <button key={id} onClick={() => setFiltroPreco(id)}
+                className={`text-xs px-3 py-1.5 rounded-full border ${filtroPreco === id ? "border-cyan-500 text-cyan-300 bg-cyan-500/10" : "border-slate-700 text-slate-400 hover:text-slate-200"}`}>{label}</button>
+            ))}
+          </div>
 
           {novoProduto && (
             <div className={`${card} p-4 flex flex-wrap gap-2 items-end`}>
@@ -789,13 +1005,14 @@ export default function CotacoesModule() {
                   <th className="text-left px-2 py-2">Mais barato</th>
                   <th className="text-right px-2 py-2">Preço</th>
                   <th className="text-left px-2 py-2">2ª opção</th>
+                  <th className="text-right px-2 py-2">Referência</th>
                   <th className="text-right px-2 py-2">Cotações</th>
                   <th className="px-2 py-2"></th>
                 </tr>
               </thead>
               <tbody>
                 {produtosFiltrados.length === 0 && (
-                  <tr><td colSpan={6} className="px-4 py-6 text-center text-slate-500">Nenhum produto. Importe uma cotação ou cadastre manualmente.</td></tr>
+                  <tr><td colSpan={7} className="px-4 py-6 text-center text-slate-500">Nenhum produto. Importe uma cotação ou cadastre manualmente.</td></tr>
                 )}
                 {produtosFiltrados.map(p => {
                   const v = vigentes.get(p.id!) || [];
@@ -809,6 +1026,7 @@ export default function CotacoesModule() {
                         <td className="px-4 py-2">
                           <div className="text-white">{p.nome}</div>
                           <div className="text-[11px] text-slate-500">por {p.unidadeBase}{p.categoria ? ` · ${p.categoria}` : ""}</div>
+                          {p.conferir && <div className="text-[10px] text-amber-300 inline-flex items-center gap-1"><AlertTriangle className="h-3 w-3" /> conferir</div>}
                         </td>
                         <td className="px-2 py-2 text-slate-200">
                           {melhor ? <span className="inline-flex items-center gap-1"><Trophy className="h-3.5 w-3.5 text-amber-400" />{nomeForn(melhor.fornecedorId)}</span> : <span className="text-slate-500">—</span>}
@@ -818,12 +1036,49 @@ export default function CotacoesModule() {
                         <td className="px-2 py-2 text-slate-400 text-xs">
                           {seg ? `${nomeForn(seg.fornecedorId)} · ${formatBRL(precoPorBase(seg))} (+${(((precoPorBase(seg) / precoPorBase(melhor)) - 1) * 100).toFixed(0)}%)` : "—"}
                         </td>
+                        <td className="px-2 py-2 text-right font-mono text-slate-500 text-xs">{p.precoReferencia ? `${formatBRL(p.precoReferencia)}/${p.unidadeBase}` : "—"}</td>
                         <td className="px-2 py-2 text-right text-slate-400">{v.length}</td>
                         <td className="px-2 py-2 text-slate-500">{aberto ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}</td>
                       </tr>
                       {aberto && (
                         <tr className="bg-slate-950/60">
-                          <td colSpan={6} className="px-4 py-4 space-y-4">
+                          <td colSpan={7} className="px-4 py-4 space-y-4">
+                            {p.conferir && (
+                              <div className="flex flex-wrap items-start justify-between gap-2 bg-amber-500/10 border border-amber-500/30 rounded-lg p-3">
+                                <div className="text-xs text-amber-200 space-y-0.5">
+                                  {p.conferir.split("|").map((m, i) => <div key={i}>• {m.trim()}</div>)}
+                                </div>
+                                <button onClick={() => appDb.update("produtos_compra", p.id!, { conferir: "" })} className={`${btnSec} text-xs py-1`}><Check className="h-3.5 w-3.5" /> Marcar como conferido</button>
+                              </div>
+                            )}
+                            <div className="flex flex-wrap gap-4 text-xs text-slate-400">
+                              <span>
+                                Referência: {p.referenciaEmbalagem
+                                  ? `${formatBRL(p.referenciaEmbalagem.preco)} por embalagem de ${formatQtd(p.referenciaEmbalagem.conteudo)} ${p.unidadeBase} = ${formatBRL(p.precoReferencia || 0)}/${p.unidadeBase}`
+                                  : "sem preço de referência"}
+                                {p.referenciaFonte ? ` · ${p.referenciaFonte}` : ""}
+                              </span>
+                              {melhor && p.precoReferencia ? (
+                                <span className={precoPorBase(melhor) <= p.precoReferencia ? "text-emerald-400" : "text-amber-300"}>
+                                  Melhor cotação {(((precoPorBase(melhor) / p.precoReferencia) - 1) * 100).toFixed(0)}% vs. referência
+                                </span>
+                              ) : null}
+                            </div>
+                            <div className="flex flex-wrap items-center gap-2">
+                              <span className="text-xs text-slate-400">Trabalham com este produto:</span>
+                              {(p.fornecedorIds || []).filter(id => fornecedorPorId.has(id)).map(id => (
+                                <span key={id} className="inline-flex items-center gap-1 text-xs bg-slate-800 border border-slate-700 rounded-full px-2 py-0.5 text-slate-200">
+                                  {nomeForn(id)}
+                                  {v.some(c => c.fornecedorId === id) ? <Check className="h-3 w-3 text-emerald-400" /> : null}
+                                  <button onClick={() => atualizarCatalogo(p, (p.fornecedorIds || []).filter(x => x !== id))} className="text-slate-500 hover:text-rose-400"><X className="h-3 w-3" /></button>
+                                </span>
+                              ))}
+                              <select value="" onChange={e => e.target.value && atualizarCatalogo(p, [...(p.fornecedorIds || []), e.target.value])}
+                                className="bg-slate-800 border border-slate-700 rounded px-2 py-1 text-xs text-slate-300">
+                                <option value="">+ fornecedor</option>
+                                {[...fornecedores].filter(f => !(p.fornecedorIds || []).includes(f.id!)).sort((a, b) => a.nome.localeCompare(b.nome)).map(f => <option key={f.id} value={f.id}>{f.nome}</option>)}
+                              </select>
+                            </div>
                             {editProduto?.id === p.id ? (
                               <div className="flex flex-wrap gap-2 items-end">
                                 <input value={editProduto?.nome || ""} onChange={e => { const v = e.target.value; setEditProduto(ep => ep && { ...ep, nome: v }); }} className={`${inputCls} flex-1 min-w-[200px]`} />
@@ -831,12 +1086,14 @@ export default function CotacoesModule() {
                                   {UNIDADES.map(u => <option key={u} value={u}>{u}</option>)}
                                 </select>
                                 <input value={editProduto?.categoria || ""} onChange={e => { const v = e.target.value; setEditProduto(ep => ep && { ...ep, categoria: v }); }} placeholder="Categoria" className={inputCls} />
+                                <input value={refEdit.preco} onChange={e => setRefEdit({ ...refEdit, preco: e.target.value })} placeholder="Ref. R$ embalagem" title="Preço de referência da embalagem" className={`${inputCls} w-36`} />
+                                <input value={refEdit.conteudo} onChange={e => setRefEdit({ ...refEdit, conteudo: e.target.value })} placeholder="Qtd emb." title={`Quantos ${editProduto?.unidadeBase || ""} na embalagem de referência`} className={`${inputCls} w-24`} />
                                 <button onClick={salvarEdicaoProduto} className={btnPrim}><Check className="h-4 w-4" /> Salvar</button>
                                 <button onClick={() => setEditProduto(null)} className={btnSec}>Cancelar</button>
                               </div>
                             ) : (
                               <div className="flex gap-2">
-                                <button onClick={() => setEditProduto({ ...p })} className={btnSec}><Pencil className="h-4 w-4" /> Editar produto</button>
+                                <button onClick={() => { setEditProduto({ ...p }); setRefEdit({ preco: p.referenciaEmbalagem ? String(p.referenciaEmbalagem.preco).replace(".", ",") : "", conteudo: p.referenciaEmbalagem ? String(p.referenciaEmbalagem.conteudo).replace(".", ",") : "1" }); }} className={btnSec}><Pencil className="h-4 w-4" /> Editar produto</button>
                                 <button onClick={() => excluirProduto(p)} className={`${btnSec} hover:text-rose-400`}><Trash2 className="h-4 w-4" /> Excluir</button>
                               </div>
                             )}
@@ -916,7 +1173,55 @@ export default function CotacoesModule() {
       {/* ============================== IMPORTAR ============================== */}
       {aba === "importar" && (
         <div className="space-y-4">
-          {!revisao ? (
+          <div className="inline-flex bg-slate-900 border border-slate-800 rounded-lg p-1">
+            <button onClick={() => setImpModo("cotacao")} className={`px-3 py-1.5 text-sm rounded-md ${impModo === "cotacao" ? "bg-slate-700 text-white" : "text-slate-400"}`}>Cotação de fornecedor</button>
+            <button onClick={() => setImpModo("base")} className={`px-3 py-1.5 text-sm rounded-md ${impModo === "base" ? "bg-slate-700 text-white" : "text-slate-400"}`}>Base de produtos (inventário)</button>
+          </div>
+
+          {impModo === "base" && (
+            <div className={`${card} p-4 space-y-4`}>
+              <div>
+                <h3 className="text-white font-semibold flex items-center gap-2"><Database className="h-4 w-4 text-cyan-400" /> Importar base de produtos</h3>
+                <p className="text-xs text-slate-400 mt-1">
+                  Cria os produtos, os fornecedores e quem trabalha com cada item. O preço do inventário entra como <strong>referência</strong>:
+                  serve de estimativa e comparação, mas não é cotação. Importar de novo atualiza sem duplicar.
+                </p>
+              </div>
+              {!baseLida ? (
+                <label className={`${btnPrim} cursor-pointer w-fit`}>
+                  <FileSpreadsheet className="h-4 w-4" /> Escolher planilha Base de Compras (.xlsx)
+                  <input type="file" accept=".xlsx,.xls" className="hidden" onChange={e => { const f = e.target.files?.[0]; if (f) lerArquivoBase(f); e.target.value = ""; }} />
+                </label>
+              ) : (
+                <div className="space-y-3">
+                  <div className="text-sm text-slate-300">{baseLida.arquivo}</div>
+                  {resumoBase && (
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                      {[["Produtos novos", resumoBase.novos, "text-white"], ["Já cadastrados", resumoBase.existentes, "text-white"], ["Para conferir", resumoBase.conferir, "text-amber-300"], ["Fornecedores novos", resumoBase.fornNovos, "text-white"]].map(([l, n, c]) => (
+                        <div key={l as string} className="bg-slate-950/60 border border-slate-800 rounded-lg p-3">
+                          <div className={`text-2xl font-bold ${c}`}>{n as number}</div>
+                          <div className="text-[11px] uppercase text-slate-500">{l as string}</div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {!!resumoBase?.existentes && (
+                    <label className="text-sm text-slate-300 flex items-center gap-2">
+                      <input type="checkbox" checked={baseAtualizar} onChange={e => setBaseAtualizar(e.target.checked)} />
+                      Atualizar referência, categoria e catálogo dos produtos que já existem
+                    </label>
+                  )}
+                  <div className="flex gap-2 items-center flex-wrap">
+                    <button onClick={() => setBaseLida(null)} disabled={importandoBase} className={btnSec}>Cancelar</button>
+                    <button onClick={importarBase} disabled={importandoBase} className={btnPrim}><Check className="h-4 w-4" /> {importandoBase ? "Importando..." : "Importar"}</button>
+                    {baseProgresso && <span className="text-xs text-slate-400">{baseProgresso}</span>}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {impModo === "cotacao" && (!revisao ? (
             <div className={`${card} p-4 space-y-3`}>
               <div className="flex flex-wrap gap-3 items-end">
                 <div>
@@ -1031,7 +1336,7 @@ export default function CotacoesModule() {
                 </table>
               </div>
             </div>
-          )}
+          ))}
         </div>
       )}
 
@@ -1071,7 +1376,7 @@ export default function CotacoesModule() {
           )}
 
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
-            {[...fornecedores].sort((a, b) => (rankingFornecedor.ganha.get(b.id!) || 0) - (rankingFornecedor.ganha.get(a.id!) || 0)).map(f => (
+            {[...fornecedores].sort((a, b) => (rankingFornecedor.ganha.get(b.id!) || 0) - (rankingFornecedor.ganha.get(a.id!) || 0) || (catalogoPorFornecedor.get(b.id!)?.length || 0) - (catalogoPorFornecedor.get(a.id!)?.length || 0)).map(f => (
               <div key={f.id} className={`${card} p-4 space-y-2`}>
                 <div className="flex justify-between items-start gap-2">
                   <div>
@@ -1084,13 +1389,25 @@ export default function CotacoesModule() {
                     <button onClick={() => excluirFornecedor(f)} className="text-slate-500 hover:text-rose-400 p-1"><Trash2 className="h-4 w-4" /></button>
                   </div>
                 </div>
-                <div className="flex gap-4 text-xs">
+                <div className="flex gap-4 text-xs flex-wrap">
                   <span><strong className="text-emerald-400 text-base">{rankingFornecedor.ganha.get(f.id!) || 0}</strong> mais barato</span>
                   <span><strong className="text-white text-base">{rankingFornecedor.cotados.get(f.id!) || 0}</strong> cotados</span>
+                  <span><strong className="text-white text-base">{catalogoPorFornecedor.get(f.id!)?.length || 0}</strong> no catálogo</span>
                   {!!f.pedidoMinimo && <span>mín. {formatBRL(f.pedidoMinimo)}</span>}
                 </div>
                 {f.obs && <p className="text-xs text-slate-400">{f.obs}</p>}
-                <button onClick={() => { setImpFornecedor(f.id!); setAba("importar"); }} className={`${btnSec} text-xs py-1`}><Upload className="h-3.5 w-3.5" /> Importar cotação</button>
+                <div className="flex gap-2 flex-wrap">
+                  <button onClick={() => { setImpFornecedor(f.id!); setImpModo("cotacao"); setAba("importar"); }} className={`${btnSec} text-xs py-1`}><Upload className="h-3.5 w-3.5" /> Importar cotação</button>
+                  {!!catalogoPorFornecedor.get(f.id!)?.length && (() => {
+                    const texto = mensagemPedidoPreco(f.nome, catalogoPorFornecedor.get(f.id!)!.map(p => ({ nome: p.nome })));
+                    return (
+                      <>
+                        <button onClick={() => copiar(texto)} className={`${btnSec} text-xs py-1`} title="Mensagem pedindo o preço de todos os produtos do catálogo"><Copy className="h-3.5 w-3.5" /> Pedir tabela de preços</button>
+                        {f.whatsapp && <a href={linkWhatsApp(f.whatsapp, texto)} target="_blank" rel="noreferrer" className={`${btnSec} text-xs py-1`}><Send className="h-3.5 w-3.5" /></a>}
+                      </>
+                    );
+                  })()}
+                </div>
               </div>
             ))}
             {fornecedores.length === 0 && <div className="text-sm text-slate-500">Nenhum fornecedor cadastrado.</div>}
