@@ -7,6 +7,7 @@ import ChecklistModule from "./components/ChecklistModule";
 import OcorrenciasModule from "./components/OcorrenciasModule";
 import ManutencaoModule from "./components/ManutencaoModule";
 import ComprasModule from "./components/ComprasModule";
+import CotacoesModule from "./components/CotacoesModule";
 import AgendaModule from "./components/AgendaModule";
 import BalancoEventosModule from "./components/BalancoEventosModule";
 import ContatosModule from "./components/ContatosModule";
@@ -103,6 +104,8 @@ export default function App() {
         return <ManutencaoModule />;
       case "compras":
         return <ComprasModule />;
+      case "cotacoes":
+        return <CotacoesModule />;
       case "agenda":
         return <AgendaModule />;
       case "balanco_eventos":

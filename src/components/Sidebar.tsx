@@ -18,7 +18,8 @@ import {
   FileSpreadsheet,
   Activity,
   Sparkles,
-  ChevronRight
+  ChevronRight,
+  Tag
 } from "lucide-react";
 import { isFirebaseActive } from "../firebase";
 
@@ -38,6 +39,7 @@ export const MENU_ITEMS = [
   { id: "ocorrencias", name: "Ocorrências no Salão", icon: AlertTriangle },
   { id: "manutencao", name: "Manutenção & Facilities", icon: Wrench },
   { id: "compras", name: "Compras Gerais", icon: ShoppingCart },
+  { id: "cotacoes", name: "Cotações & Fornecedores", icon: Tag },
   { id: "vinhos", name: "Carta de Vinhos", icon: Wine },
   { id: "limpeza", name: "Materiais de Limpeza", icon: Sparkles },
   { id: "agenda", name: "Eventos & Atrações", icon: Calendar },
@@ -56,7 +58,7 @@ export default function Sidebar({ activeModule, setActiveModule, user, onSignOut
   const isSolicitante = user?.role === "chef_cozinha" || user?.role === "chef_bar";
 
   const menuItems = user?.allowedModules && user.allowedModules !== "ALL" 
-    ? MENU_ITEMS.filter(m => user.allowedModules.includes(m.id))
+    ? MENU_ITEMS.filter(m => user.allowedModules.includes(m.id) || (user?.role === "admin" && m.id === "cotacoes"))
     : isSolicitante
     ? MENU_ITEMS.filter(m => ["gestao_compras", "fichas_tecnicas", "checklist", "dashboard"].includes(m.id))
     : MENU_ITEMS;
