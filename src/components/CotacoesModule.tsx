@@ -62,6 +62,7 @@ interface LinhaRevisao {
 type Aba = "lista" | "precos" | "importar" | "fornecedores" | "pedidos";
 
 const LISTA_KEY = "sea_lista_compras_v1";
+const AVISO_UNIDADE = "Sem unidade cadastrada";
 const ORIGENS: { id: OrigemCotacao; label: string }[] = [
   { id: "whatsapp", label: "WhatsApp" },
   { id: "pdf", label: "PDF" },
@@ -121,6 +122,22 @@ export default function CotacoesModule() {
   const produtoPorId = useMemo(() => new Map(produtos.map(p => [p.id!, p])), [produtos]);
   const vigentes = useMemo(() => cotacoesVigentes(cotacoes), [cotacoes]);
   const nomeForn = (id: string) => fornecedorPorId.get(id)?.nome || "Fornecedor removido";
+
+  // Pendências calculadas na hora a partir do estado do produto: somem sozinhas quando resolvidas
+  const partesConferir = (p: ProdutoCompra) => (p.conferir || "").split("|").map(x => x.trim()).filter(Boolean);
+  const pendencias = (p: ProdutoCompra): { tipo: "unidade" | "fornecedor" | "preco" | "referencia"; texto: string }[] => {
+    const out: { tipo: "unidade" | "fornecedor" | "preco" | "referencia"; texto: string }[] = [];
+    const partes = partesConferir(p);
+    const temCotacao = (vigentes.get(p.id!) || []).length > 0;
+    if (partes.includes(AVISO_UNIDADE)) out.push({ tipo: "unidade", texto: "O inventário não dizia a unidade. Como comparar o preço deste produto?" });
+    if (!(p.fornecedorIds || []).some(id => fornecedorPorId.has(id))) out.push({ tipo: "fornecedor", texto: "Nenhum fornecedor ligado a este produto." });
+    if (!temCotacao && !p.precoReferencia) out.push({ tipo: "preco", texto: "Sem preço: nenhuma cotação e nenhuma referência." });
+    // avisos sobre o preço do inventário só importam enquanto não há cotação
+    if (!temCotacao && p.precoReferencia) {
+      partes.filter(x => x !== AVISO_UNIDADE && x !== "Sem preço" && x !== "Sem fornecedor").forEach(x => out.push({ tipo: "referencia", texto: x }));
+    }
+    return out;
+  };
 
   // =========================================================================
   // LISTA DE COMPRAS
@@ -315,20 +332,19 @@ export default function CotacoesModule() {
   // =========================================================================
   const [buscaPreco, setBuscaPreco] = useState("");
   const [filtroPreco, setFiltroPreco] = useState<"todos" | "conferir" | "semcot">("todos");
-  const [refEdit, setRefEdit] = useState<{ preco: string; conteudo: string }>({ preco: "", conteudo: "" });
+  const [ficha, setFicha] = useState<{ nome: string; categoria: string; refPreco: string; refConteudo: string }>({ nome: "", categoria: "", refPreco: "", refConteudo: "1" });
   const [produtoAberto, setProdutoAberto] = useState<string | null>(null);
   const [novoProduto, setNovoProduto] = useState<{ nome: string; unidadeBase: UnidadeBase; categoria: string } | null>(null);
-  const [editProduto, setEditProduto] = useState<ProdutoCompra | null>(null);
   const [cotManual, setCotManual] = useState({ fornecedorId: "", preco: "", conteudo: "1", descricao: "", data: hojeISO() });
 
   const produtosFiltrados = useMemo(() => {
     const q = normalizar(buscaPreco);
     return [...produtos]
       .filter(p => !q || normalizar(p.nome).includes(q) || normalizar(p.categoria || "").includes(q))
-      .filter(p => filtroPreco === "todos" || (filtroPreco === "conferir" ? !!p.conferir : !(vigentes.get(p.id!) || []).length))
+      .filter(p => filtroPreco === "todos" || (filtroPreco === "conferir" ? pendencias(p).length > 0 : !(vigentes.get(p.id!) || []).length))
       .sort((a, b) => (a.categoria || "").localeCompare(b.categoria || "") || a.nome.localeCompare(b.nome));
-  }, [produtos, buscaPreco, filtroPreco, vigentes]);
-  const totalConferir = produtos.filter(p => p.conferir).length;
+  }, [produtos, buscaPreco, filtroPreco, vigentes, fornecedorPorId]);
+  const totalConferir = useMemo(() => produtos.filter(p => pendencias(p).length > 0).length, [produtos, vigentes, fornecedorPorId]);
 
   const atualizarCatalogo = async (p: ProdutoCompra, ids: string[]) => {
     await appDb.update("produtos_compra", p.id!, { fornecedorIds: Array.from(new Set(ids)) });
@@ -345,16 +361,43 @@ export default function CotacoesModule() {
     setMsg("Produto cadastrado.");
   };
 
-  const salvarEdicaoProduto = async () => {
-    if (!editProduto?.id) return;
-    const preco = parseNumeroBR(refEdit.preco);
-    const conteudo = parseNumeroBR(refEdit.conteudo);
-    const ref = isFinite(preco) && preco > 0 && isFinite(conteudo) && conteudo > 0
-      ? { precoReferencia: preco / conteudo, referenciaEmbalagem: { preco, conteudo } }
-      : (refEdit.preco.trim() === "" ? { precoReferencia: null, referenciaEmbalagem: null } : {});
-    await appDb.update("produtos_compra", editProduto.id, { nome: editProduto.nome.trim(), unidadeBase: editProduto.unidadeBase, categoria: editProduto.categoria || "", ...ref });
-    setEditProduto(null);
+  const abrirProduto = (p: ProdutoCompra | null) => {
+    setProdutoAberto(p ? p.id! : null);
+    if (!p) return;
+    setFicha({
+      nome: p.nome,
+      categoria: p.categoria || "",
+      refPreco: p.referenciaEmbalagem ? String(p.referenciaEmbalagem.preco).replace(".", ",") : "",
+      refConteudo: p.referenciaEmbalagem ? String(p.referenciaEmbalagem.conteudo).replace(".", ",") : "1",
+    });
+    setCotManual(c => ({ ...c, preco: "", conteudo: p.referenciaEmbalagem ? String(p.referenciaEmbalagem.conteudo).replace(".", ",") : "1", descricao: "" }));
   };
+
+  const definirUnidade = async (p: ProdutoCompra, u: UnidadeBase) => {
+    if (u !== p.unidadeBase && (vigentes.get(p.id!) || []).length &&
+      !confirm("Este produto já tem cotações nessa unidade. Mudar não converte as cotações antigas. Continuar?")) return;
+    await appDb.update("produtos_compra", p.id!, { unidadeBase: u, conferir: partesConferir(p).filter(x => x !== AVISO_UNIDADE).join(" | ") });
+  };
+
+  const salvarReferencia = async (p: ProdutoCompra) => {
+    const txt = ficha.refPreco.trim();
+    const preco = parseNumeroBR(txt);
+    const conteudo = parseNumeroBR(ficha.refConteudo || "1");
+    let patch: any;
+    if (!txt) {
+      if (!p.referenciaEmbalagem) return;
+      patch = { precoReferencia: null, referenciaEmbalagem: null };
+    } else if (isFinite(preco) && preco > 0 && isFinite(conteudo) && conteudo > 0) {
+      if (p.referenciaEmbalagem && p.referenciaEmbalagem.preco === preco && p.referenciaEmbalagem.conteudo === conteudo) return;
+      patch = { precoReferencia: preco / conteudo, referenciaEmbalagem: { preco, conteudo }, referenciaFonte: "ajuste manual" };
+    } else return;
+    // corrigiu a referência: os avisos antigos sobre o preço deixam de valer
+    patch.conferir = partesConferir(p).filter(x => x === AVISO_UNIDADE).join(" | ");
+    await appDb.update("produtos_compra", p.id!, patch);
+  };
+
+  const dispensarAviso = (p: ProdutoCompra, texto: string) =>
+    appDb.update("produtos_compra", p.id!, { conferir: partesConferir(p).filter(x => x !== texto).join(" | ") });
 
   const excluirProduto = async (p: ProdutoCompra) => {
     const n = cotacoes.filter(c => c.produtoId === p.id).length;
@@ -827,7 +870,7 @@ export default function CotacoesModule() {
                       <span className="text-xs text-slate-500">{produto ? "nenhuma cotação para este produto" : "produto não cadastrado"}</span>
                       {produto && calc.find(c => c.item.key === item.key)?.estimativa && (
                         <span className="text-xs text-amber-300">
-                          estimativa {formatBRL(calc.find(c => c.item.key === item.key)!.estimativa!.total)} (inventário{produto.conferir ? ", conferir" : ""})
+                          estimativa {formatBRL(calc.find(c => c.item.key === item.key)!.estimativa!.total)} (inventário{pendencias(produto).some(x => x.tipo === "referencia") ? ", referência suspeita" : ""})
                         </span>
                       )}
                       {produto && nomesCatalogo(produto).length > 0 && (
@@ -1004,7 +1047,7 @@ export default function CotacoesModule() {
             <button onClick={() => setNovoProduto({ nome: "", unidadeBase: "KG", categoria: "" })} className={btnPrim}><Plus className="h-4 w-4" /> Novo produto</button>
           </div>
           <div className="flex gap-2 flex-wrap">
-            {([["todos", `Todos (${produtos.length})`], ["conferir", `Conferir (${totalConferir})`], ["semcot", "Sem cotação"]] as const).map(([id, label]) => (
+            {([["todos", `Todos (${produtos.length})`], ["conferir", `Pendências (${totalConferir})`], ["semcot", "Sem cotação"]] as const).map(([id, label]) => (
               <button key={id} onClick={() => setFiltroPreco(id)}
                 className={`text-xs px-3 py-1.5 rounded-full border ${filtroPreco === id ? "border-cyan-500 text-cyan-300 bg-cyan-500/10" : "border-slate-700 text-slate-400 hover:text-slate-200"}`}>{label}</button>
             ))}
@@ -1053,14 +1096,34 @@ export default function CotacoesModule() {
                   const melhor = v[0];
                   const seg = v[1];
                   const aberto = produtoAberto === p.id;
+                  const pend = pendencias(p);
                   const historico = cotacoes.filter(c => c.produtoId === p.id).sort((a, b) => new Date(b.data).getTime() - new Date(a.data).getTime());
+                  const ligados = (p.fornecedorIds || []).filter(id => fornecedorPorId.has(id));
+                  const naoLigados = [...fornecedores].filter(f => !ligados.includes(f.id!)).sort((a, b) => a.nome.localeCompare(b.nome));
+                  const selectFornecedor = (cls = "") => (
+                    <select value="" onChange={e => e.target.value && atualizarCatalogo(p, [...ligados, e.target.value])}
+                      className={`bg-slate-800 border border-slate-700 rounded px-2 py-1 text-xs text-slate-300 ${cls}`}>
+                      <option value="">+ ligar fornecedor</option>
+                      {naoLigados.map(f => <option key={f.id} value={f.id}>{f.nome}</option>)}
+                    </select>
+                  );
+                  const botoesUnidade = (
+                    <div className="inline-flex bg-slate-800 border border-slate-700 rounded-lg p-0.5">
+                      {UNIDADES.map(u => (
+                        <button key={u} onClick={() => definirUnidade(p, u)}
+                          className={`px-3 py-1 text-xs rounded-md ${p.unidadeBase === u && !pend.some(x => x.tipo === "unidade") ? "bg-cyan-600 text-white" : "text-slate-300 hover:bg-slate-700"}`}>
+                          {u === "KG" ? "por KG" : u === "L" ? "por litro" : "por unidade"}
+                        </button>
+                      ))}
+                    </div>
+                  );
                   return (
                     <React.Fragment key={p.id}>
-                      <tr className="border-t border-slate-800/60 hover:bg-slate-800/30 cursor-pointer" onClick={() => setProdutoAberto(aberto ? null : p.id!)}>
+                      <tr className={`border-t border-slate-800/60 hover:bg-slate-800/30 cursor-pointer ${aberto ? "bg-slate-800/40" : ""}`} onClick={() => abrirProduto(aberto ? null : p)}>
                         <td className="px-4 py-2">
                           <div className="text-white">{p.nome}</div>
                           <div className="text-[11px] text-slate-500">por {p.unidadeBase}{p.categoria ? ` · ${p.categoria}` : ""}</div>
-                          {p.conferir && <div className="text-[10px] text-amber-300 inline-flex items-center gap-1"><AlertTriangle className="h-3 w-3" /> conferir</div>}
+                          {pend.length > 0 && <div className="text-[10px] text-amber-300 inline-flex items-center gap-1"><AlertTriangle className="h-3 w-3" /> {pend.length} pendência{pend.length > 1 ? "s" : ""}</div>}
                         </td>
                         <td className="px-2 py-2 text-slate-200">
                           {melhor ? <span className="inline-flex items-center gap-1"><Trophy className="h-3.5 w-3.5 text-amber-400" />{nomeForn(melhor.fornecedorId)}</span> : <span className="text-slate-500">—</span>}
@@ -1076,122 +1139,148 @@ export default function CotacoesModule() {
                       </tr>
                       {aberto && (
                         <tr className="bg-slate-950/60">
-                          <td colSpan={7} className="px-4 py-4 space-y-4">
-                            {p.conferir && (
-                              <div className="flex flex-wrap items-start justify-between gap-2 bg-amber-500/10 border border-amber-500/30 rounded-lg p-3">
-                                <div className="text-xs text-amber-200 space-y-0.5">
-                                  {p.conferir.split("|").map((m, i) => <div key={i}>• {m.trim()}</div>)}
-                                </div>
-                                <button onClick={() => appDb.update("produtos_compra", p.id!, { conferir: "" })} className={`${btnSec} text-xs py-1`}><Check className="h-3.5 w-3.5" /> Marcar como conferido</button>
-                              </div>
-                            )}
-                            <div className="flex flex-wrap gap-4 text-xs text-slate-400">
-                              <span>
-                                Referência: {p.referenciaEmbalagem
-                                  ? `${formatBRL(p.referenciaEmbalagem.preco)} por embalagem de ${formatQtd(p.referenciaEmbalagem.conteudo)} ${p.unidadeBase} = ${formatBRL(p.precoReferencia || 0)}/${p.unidadeBase}`
-                                  : "sem preço de referência"}
-                                {p.referenciaFonte ? ` · ${p.referenciaFonte}` : ""}
-                              </span>
-                              {melhor && p.precoReferencia ? (
-                                <span className={precoPorBase(melhor) <= p.precoReferencia ? "text-emerald-400" : "text-amber-300"}>
-                                  Melhor cotação {(((precoPorBase(melhor) / p.precoReferencia) - 1) * 100).toFixed(0)}% vs. referência
-                                </span>
-                              ) : null}
-                            </div>
-                            <div className="flex flex-wrap items-center gap-2">
-                              <span className="text-xs text-slate-400">Trabalham com este produto:</span>
-                              {(p.fornecedorIds || []).filter(id => fornecedorPorId.has(id)).map(id => (
-                                <span key={id} className="inline-flex items-center gap-1 text-xs bg-slate-800 border border-slate-700 rounded-full px-2 py-0.5 text-slate-200">
-                                  {nomeForn(id)}
-                                  {v.some(c => c.fornecedorId === id) ? <Check className="h-3 w-3 text-emerald-400" /> : null}
-                                  <button onClick={() => atualizarCatalogo(p, (p.fornecedorIds || []).filter(x => x !== id))} className="text-slate-500 hover:text-rose-400"><X className="h-3 w-3" /></button>
-                                </span>
-                              ))}
-                              <select value="" onChange={e => e.target.value && atualizarCatalogo(p, [...(p.fornecedorIds || []), e.target.value])}
-                                className="bg-slate-800 border border-slate-700 rounded px-2 py-1 text-xs text-slate-300">
-                                <option value="">+ fornecedor</option>
-                                {[...fornecedores].filter(f => !(p.fornecedorIds || []).includes(f.id!)).sort((a, b) => a.nome.localeCompare(b.nome)).map(f => <option key={f.id} value={f.id}>{f.nome}</option>)}
-                              </select>
-                            </div>
-                            {editProduto?.id === p.id ? (
-                              <div className="flex flex-wrap gap-2 items-end">
-                                <input value={editProduto?.nome || ""} onChange={e => { const v = e.target.value; setEditProduto(ep => ep && { ...ep, nome: v }); }} className={`${inputCls} flex-1 min-w-[200px]`} />
-                                <select value={editProduto?.unidadeBase || "UN"} onChange={e => { const v = e.target.value as UnidadeBase; setEditProduto(ep => ep && { ...ep, unidadeBase: v }); }} className={inputCls}>
-                                  {UNIDADES.map(u => <option key={u} value={u}>{u}</option>)}
-                                </select>
-                                <input value={editProduto?.categoria || ""} onChange={e => { const v = e.target.value; setEditProduto(ep => ep && { ...ep, categoria: v }); }} placeholder="Categoria" className={inputCls} />
-                                <input value={refEdit.preco} onChange={e => setRefEdit({ ...refEdit, preco: e.target.value })} placeholder="Ref. R$ embalagem" title="Preço de referência da embalagem" className={`${inputCls} w-36`} />
-                                <input value={refEdit.conteudo} onChange={e => setRefEdit({ ...refEdit, conteudo: e.target.value })} placeholder="Qtd emb." title={`Quantos ${editProduto?.unidadeBase || ""} na embalagem de referência`} className={`${inputCls} w-24`} />
-                                <button onClick={salvarEdicaoProduto} className={btnPrim}><Check className="h-4 w-4" /> Salvar</button>
-                                <button onClick={() => setEditProduto(null)} className={btnSec}>Cancelar</button>
+                          <td colSpan={7} className="px-4 py-4 space-y-4" onClick={e => e.stopPropagation()}>
+
+                            {/* ---------- PENDÊNCIAS: cada uma com a correção do lado; somem sozinhas quando resolvidas ---------- */}
+                            {pend.length > 0 ? (
+                              <div className="bg-amber-500/5 border border-amber-500/30 rounded-lg divide-y divide-amber-500/20">
+                                {pend.map((x, i) => (
+                                  <div key={i} className="flex flex-wrap items-center gap-3 px-3 py-2">
+                                    <AlertTriangle className="h-4 w-4 text-amber-400 shrink-0" />
+                                    <span className="text-xs text-amber-100 flex-1 min-w-[200px]">{x.tipo === "referencia" ? "Preço do inventário: " : ""}{x.texto}</span>
+                                    {x.tipo === "unidade" && botoesUnidade}
+                                    {x.tipo === "fornecedor" && selectFornecedor()}
+                                    {x.tipo === "preco" && <span className="text-[11px] text-slate-400">Informe a referência em "Produto" ou lance uma cotação em "Cotações".</span>}
+                                    {x.tipo === "referencia" && (
+                                      <span className="text-[11px] text-slate-400">Corrija a referência abaixo ou</span>
+                                        <button onClick={() => dispensarAviso(p, x.texto)} className={`${btnSec} text-xs py-1`}><Check className="h-3.5 w-3.5" /> Está certo</button>
+                                    )}
+                                  </div>
+                                ))}
                               </div>
                             ) : (
-                              <div className="flex gap-2">
-                                <button onClick={() => { setEditProduto({ ...p }); setRefEdit({ preco: p.referenciaEmbalagem ? String(p.referenciaEmbalagem.preco).replace(".", ",") : "", conteudo: p.referenciaEmbalagem ? String(p.referenciaEmbalagem.conteudo).replace(".", ",") : "1" }); }} className={btnSec}><Pencil className="h-4 w-4" /> Editar produto</button>
-                                <button onClick={() => excluirProduto(p)} className={`${btnSec} hover:text-rose-400`}><Trash2 className="h-4 w-4" /> Excluir</button>
-                              </div>
-                            )}
-                            {editProduto?.id === p.id && editProduto?.unidadeBase !== p.unidadeBase && (
-                              <p className="text-xs text-amber-300">Mudar a unidade não converte as cotações antigas: confira o conteúdo de cada uma no histórico.</p>
+                              <div className="text-xs text-emerald-400 inline-flex items-center gap-1"><Check className="h-3.5 w-3.5" /> Nenhuma pendência</div>
                             )}
 
-                            <div className="flex flex-wrap gap-2 items-end">
-                              <div>
-                                <label className="text-[11px] text-slate-400 block">Fornecedor</label>
-                                {seletorFornecedor(cotManual.fornecedorId, v2 => setCotManual({ ...cotManual, fornecedorId: v2 }))}
+                            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                              {/* ---------- PRODUTO ---------- */}
+                              <div className="space-y-3">
+                                <h4 className="text-[11px] uppercase tracking-wide text-slate-500">Produto</h4>
+                                <div className="flex flex-wrap gap-2">
+                                  <input value={ficha.nome} onChange={e => setFicha({ ...ficha, nome: e.target.value })}
+                                    onBlur={() => ficha.nome.trim() && ficha.nome.trim() !== p.nome && appDb.update("produtos_compra", p.id!, { nome: ficha.nome.trim() })}
+                                    className={`${inputCls} flex-1 min-w-[200px]`} />
+                                  <input value={ficha.categoria} onChange={e => setFicha({ ...ficha, categoria: e.target.value })}
+                                    onBlur={() => ficha.categoria !== (p.categoria || "") && appDb.update("produtos_compra", p.id!, { categoria: ficha.categoria.trim() })}
+                                    placeholder="Categoria" className={`${inputCls} w-56`} />
+                                </div>
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <span className="text-xs text-slate-400 w-28">Comparar preço</span>
+                                  {botoesUnidade}
+                                </div>
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <span className="text-xs text-slate-400 w-28">Referência</span>
+                                  <input value={ficha.refPreco} onChange={e => setFicha({ ...ficha, refPreco: e.target.value })} onBlur={() => salvarReferencia(p)}
+                                    placeholder="R$ embalagem" className={`${inputCls} w-28 py-1`} />
+                                  <span className="text-xs text-slate-500">por embalagem de</span>
+                                  <input value={ficha.refConteudo} onChange={e => setFicha({ ...ficha, refConteudo: e.target.value })} onBlur={() => salvarReferencia(p)}
+                                    className={`${inputCls} w-20 py-1`} />
+                                  <span className="text-xs text-slate-500">{p.unidadeBase}</span>
+                                  {p.precoReferencia ? <span className="text-xs font-mono text-slate-300">= {formatBRL(p.precoReferencia)}/{p.unidadeBase}</span> : null}
+                                </div>
+                                <p className="text-[11px] text-slate-500">
+                                  Referência = preço antigo/estimado ({p.referenciaFonte || "manual"}). Só serve de estimativa; quem decide a compra são as cotações.
+                                  {melhor && p.precoReferencia ? (
+                                    <span className={precoPorBase(melhor) <= p.precoReferencia ? " text-emerald-400" : " text-amber-300"}>
+                                      {" "}Melhor cotação está {Math.abs(((precoPorBase(melhor) / p.precoReferencia) - 1) * 100).toFixed(0)}% {precoPorBase(melhor) <= p.precoReferencia ? "abaixo" : "acima"} da referência.
+                                    </span>
+                                  ) : null}
+                                </p>
+                                <button onClick={() => excluirProduto(p)} className="text-xs text-slate-500 hover:text-rose-400 inline-flex items-center gap-1"><Trash2 className="h-3.5 w-3.5" /> Excluir produto</button>
                               </div>
-                              <div>
-                                <label className="text-[11px] text-slate-400 block">Preço da embalagem</label>
-                                <input value={cotManual.preco} onChange={e => setCotManual({ ...cotManual, preco: e.target.value })} placeholder="25,00" className={`${inputCls} w-28`} />
-                              </div>
-                              <div>
-                                <label className="text-[11px] text-slate-400 block">{p.unidadeBase} na embalagem</label>
-                                <input value={cotManual.conteudo} onChange={e => setCotManual({ ...cotManual, conteudo: e.target.value })} placeholder={p.unidadeBase === "L" ? "0,66" : "1"} className={`${inputCls} w-24`} />
-                              </div>
-                              <div className="flex-1 min-w-[160px]">
-                                <label className="text-[11px] text-slate-400 block">Descrição (como o fornecedor chama)</label>
-                                <input value={cotManual.descricao} onChange={e => setCotManual({ ...cotManual, descricao: e.target.value })} className={`${inputCls} w-full`} />
-                              </div>
-                              <div>
-                                <label className="text-[11px] text-slate-400 block">Data</label>
-                                <input type="date" value={cotManual.data} onChange={e => setCotManual({ ...cotManual, data: e.target.value })} className={inputCls} />
-                              </div>
-                              <button onClick={() => salvarCotacaoManual(p.id!)} className={btnPrim}><Plus className="h-4 w-4" /> Adicionar preço</button>
-                            </div>
 
-                            <table className="w-full text-xs">
-                              <thead className="text-slate-500">
-                                <tr>
-                                  <th className="text-left py-1">Data</th>
-                                  <th className="text-left py-1">Fornecedor</th>
-                                  <th className="text-left py-1">Descrição</th>
-                                  <th className="text-right py-1">Embalagem</th>
-                                  <th className="text-right py-1">Preço</th>
-                                  <th className="text-right py-1">R$/{p.unidadeBase}</th>
-                                  <th className="text-left py-1 pl-2">Origem</th>
-                                  <th></th>
-                                </tr>
-                              </thead>
-                              <tbody>
-                                {historico.map(c => {
-                                  const vigente = v.includes(c);
+                              {/* ---------- FORNECEDORES ---------- */}
+                              <div className="space-y-2">
+                                <h4 className="text-[11px] uppercase tracking-wide text-slate-500">Fornecedores que trabalham com o produto</h4>
+                                {ligados.length === 0 && <p className="text-xs text-slate-500">Nenhum ainda.</p>}
+                                {ligados.map(id => {
+                                  const c = v.find(x => x.fornecedorId === id);
                                   return (
-                                    <tr key={c.id} className={`border-t border-slate-800/60 ${vigente ? "" : "text-slate-500"}`}>
-                                      <td className="py-1">{new Date(c.data).toLocaleDateString("pt-BR")}</td>
-                                      <td className="py-1">{nomeForn(c.fornecedorId)}{vigente && c === melhor ? " ★" : ""}</td>
-                                      <td className="py-1">{c.descricaoOriginal}</td>
-                                      <td className="py-1 text-right font-mono">{formatQtd(c.conteudo)} {p.unidadeBase}</td>
-                                      <td className="py-1 text-right font-mono">{formatBRL(c.preco)}</td>
-                                      <td className="py-1 text-right font-mono">{formatBRL(precoPorBase(c))}</td>
-                                      <td className="py-1 pl-2">{ORIGENS.find(o => o.id === c.origem)?.label || c.origem}{vigente ? "" : " (antiga)"}</td>
-                                      <td className="py-1 text-right">
-                                        <button onClick={() => appDb.delete("cotacoes", c.id!)} className="text-slate-500 hover:text-rose-400"><Trash2 className="h-3.5 w-3.5" /></button>
-                                      </td>
-                                    </tr>
+                                    <div key={id} className="flex items-center gap-2 text-xs border-b border-slate-800/60 pb-1.5">
+                                      <span className="text-slate-200 flex-1">{nomeForn(id)}{c && c === melhor ? " ★" : ""}</span>
+                                      {c ? (
+                                        <span className={`font-mono ${diasDesde(c.data) > DIAS_VALIDADE_COTACAO ? "text-amber-300" : "text-emerald-400"}`}>
+                                          {formatBRL(precoPorBase(c))}/{p.unidadeBase} · {new Date(c.data).toLocaleDateString("pt-BR")}
+                                        </span>
+                                      ) : <span className="text-slate-500">sem preço</span>}
+                                      <button onClick={() => atualizarCatalogo(p, ligados.filter(x => x !== id))} className="text-slate-600 hover:text-rose-400" title="Desligar"><X className="h-3.5 w-3.5" /></button>
+                                    </div>
                                   );
                                 })}
-                              </tbody>
-                            </table>
+                                {selectFornecedor()}
+                              </div>
+                            </div>
+
+                            {/* ---------- COTAÇÕES ---------- */}
+                            <div className="space-y-2 border-t border-slate-800 pt-3">
+                              <h4 className="text-[11px] uppercase tracking-wide text-slate-500">Cotações</h4>
+                              <div className="flex flex-wrap gap-2 items-end">
+                                <div>
+                                  <label className="text-[11px] text-slate-400 block">Fornecedor</label>
+                                  {seletorFornecedor(cotManual.fornecedorId, v2 => setCotManual({ ...cotManual, fornecedorId: v2 }))}
+                                </div>
+                                <div>
+                                  <label className="text-[11px] text-slate-400 block">Preço da embalagem</label>
+                                  <input value={cotManual.preco} onChange={e => setCotManual({ ...cotManual, preco: e.target.value })} placeholder="0,00" className={`${inputCls} w-28`} />
+                                </div>
+                                <div>
+                                  <label className="text-[11px] text-slate-400 block">{p.unidadeBase} na embalagem</label>
+                                  <input value={cotManual.conteudo} onChange={e => setCotManual({ ...cotManual, conteudo: e.target.value })} className={`${inputCls} w-24`} />
+                                </div>
+                                <div>
+                                  <label className="text-[11px] text-slate-400 block">Data</label>
+                                  <input type="date" value={cotManual.data} onChange={e => setCotManual({ ...cotManual, data: e.target.value })} className={inputCls} />
+                                </div>
+                                <button onClick={() => salvarCotacaoManual(p.id!)} className={btnPrim}><Plus className="h-4 w-4" /> Adicionar preço</button>
+                              </div>
+                              {historico.length === 0 ? (
+                                <p className="text-xs text-slate-500">Nenhuma cotação ainda.</p>
+                              ) : (
+                                <table className="w-full text-xs">
+                                  <thead className="text-slate-500">
+                                    <tr>
+                                      <th className="text-left py-1">Data</th>
+                                      <th className="text-left py-1">Fornecedor</th>
+                                      <th className="text-left py-1">Descrição</th>
+                                      <th className="text-right py-1">Embalagem</th>
+                                      <th className="text-right py-1">Preço</th>
+                                      <th className="text-right py-1">R$/{p.unidadeBase}</th>
+                                      <th className="text-left py-1 pl-2">Origem</th>
+                                      <th></th>
+                                    </tr>
+                                  </thead>
+                                  <tbody>
+                                    {historico.map(c => {
+                                      const vigente = v.includes(c);
+                                      return (
+                                        <tr key={c.id} className={`border-t border-slate-800/60 ${vigente ? "" : "text-slate-500"}`}>
+                                          <td className="py-1">{new Date(c.data).toLocaleDateString("pt-BR")}</td>
+                                          <td className="py-1">{nomeForn(c.fornecedorId)}{vigente && c === melhor ? " ★" : ""}</td>
+                                          <td className="py-1">{c.descricaoOriginal}</td>
+                                          <td className="py-1 text-right font-mono">{formatQtd(c.conteudo)} {p.unidadeBase}</td>
+                                          <td className="py-1 text-right font-mono">{formatBRL(c.preco)}</td>
+                                          <td className="py-1 text-right font-mono">{formatBRL(precoPorBase(c))}</td>
+                                          <td className="py-1 pl-2">{ORIGENS.find(o => o.id === c.origem)?.label || c.origem}{vigente ? "" : " (antiga)"}</td>
+                                          <td className="py-1 text-right">
+                                            <button onClick={() => appDb.delete("cotacoes", c.id!)} className="text-slate-500 hover:text-rose-400"><Trash2 className="h-3.5 w-3.5" /></button>
+                                          </td>
+                                        </tr>
+                                      );
+                                    })}
+                                  </tbody>
+                                </table>
+                              )}
+                            </div>
                           </td>
                         </tr>
                       )}
