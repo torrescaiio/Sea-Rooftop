@@ -399,12 +399,8 @@ export default function CotacoesModule() {
     if (!impFornecedor) { setErro("Escolha o fornecedor do catálogo."); return; }
     const achados = casarCatalogo(catTexto, produtos);
     if (achados.length === 0) { setErro("Nenhum produto da base bateu com esse catálogo. Confira se a base já foi importada."); return; }
-    // marca por padrão as categorias em que o fornecedor já atende (ou tudo, se ele ainda não tem catálogo)
-    const cats = new Set(produtos.filter(p => (p.fornecedorIds || []).includes(impFornecedor)).map(p => p.categoria || ""));
-    setCatRevisao(achados.map(a => {
-      const jaTem = (a.produto.fornecedorIds || []).includes(impFornecedor);
-      return { ...a, jaTem, marcado: jaTem || cats.size === 0 || cats.has(a.produto.categoria || "") };
-    }));
+    // qualquer fornecedor pode atender qualquer setor: tudo que bateu vem marcado
+    setCatRevisao(achados.map(a => ({ ...a, jaTem: (a.produto.fornecedorIds || []).includes(impFornecedor), marcado: true })));
   };
 
   const salvarCatalogo = async () => {
