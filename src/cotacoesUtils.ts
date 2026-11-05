@@ -372,3 +372,42 @@ export const mensagemPedidoPreco = (fornecedor: string, itens: { nome: string; q
   const linhas = itens.map(i => `• ${i.nome}${i.qtd ? ` (${formatQtd(i.qtd)} ${i.unidade || ''})`.replace(' )', ')') : ''}`).join('\n');
   return `Olá, ${fornecedor}! Aqui é do Sea Rooftop. Pode me passar o preço atual destes itens?\n\n${linhas}\n\nSe possível, informe a embalagem (kg, caixa, fardo). Obrigado!`;
 };
+
+// ---------------------------------------------------------------------------
+// Catálogo sem preço: liga um fornecedor aos produtos que ele trabalha
+// Ex.: "Azeitonas verde e Preta", "Tirolez: requeijão cremoso, cheddar, parmesão"
+// ---------------------------------------------------------------------------
+const STOP_CAT = new Set(('de do da dos das e em com sem c s linha linhas produto produtos pordutos diverso diversos sabor sabores '
+  + 'conserva conservas tipo especial especiais comum food service catalago catalogo para ao a o os as varios variados').split(' '));
+const stemCat = (t: string) => t.endsWith('oes') ? t.slice(0, -2) : (t.endsWith('s') && t.length > 3 ? t.slice(0, -1) : t);
+export const tokensCatalogo = (s: string): string[] =>
+  normalizar(s).split(' ').filter(t => t.length > 1 && !STOP_CAT.has(t) && !/^\d/.test(t)).map(stemCat);
+
+export const termosCatalogo = (texto: string): { raw: string; tokens: string[] }[] => {
+  const out: { raw: string; tokens: string[] }[] = [];
+  for (const linha of (texto || '').split(/\r?\n/)) {
+    let anterior: string[] | null = null;
+    for (const parte of linha.split(/[,:;()/]|\s+e\s+/i)) {
+      // qualificadores soltos ("com e sem sal", "sem talo") não são produto
+      if (/^\s*(sem|com)\s/i.test(parte)) continue;
+      let tokens = tokensCatalogo(parte);
+      if (tokens.length === 0) continue;
+      // "Azeitonas verde e Preta" -> "azeitona preta"; "Caldo de Carne, de Galinha" -> "caldo galinha"
+      if (tokens.length === 1 && anterior && anterior.length >= 2 && !anterior.includes(tokens[0])) tokens = [anterior[0], tokens[0]];
+      out.push({ raw: parte.trim(), tokens });
+      anterior = tokens;
+    }
+  }
+  return out;
+};
+
+export const casarCatalogo = (texto: string, produtos: ProdutoCompra[]): { produto: ProdutoCompra; termos: string[] }[] => {
+  const termos = termosCatalogo(texto);
+  const res: { produto: ProdutoCompra; termos: string[] }[] = [];
+  for (const p of produtos) {
+    const pt = new Set(tokensCatalogo(p.nome));
+    const achados = termos.filter(t => t.tokens.every(tk => pt.has(tk))).map(t => t.raw);
+    if (achados.length) res.push({ produto: p, termos: Array.from(new Set(achados)) });
+  }
+  return res.sort((a, b) => (a.produto.categoria || '').localeCompare(b.produto.categoria || '') || a.produto.nome.localeCompare(b.produto.nome));
+};

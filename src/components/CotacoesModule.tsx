@@ -10,7 +10,8 @@ import {
   normalizar, parseNumeroBR, formatBRL, formatQtd, lerCotacaoTexto, linhasPlanilhaParaTexto,
   sugerirUnidadeBase, conteudoPara, casarProduto, precoPorBase, diasDesde, cotacoesVigentes,
   opcoesParaQuantidade, linkWhatsApp, DeteccaoEmbalagem, OpcaoCompra,
-  lerBaseProdutos, lerBaseFornecedores, LinhaBase, FornecedorBase, estimativaReferencia, mensagemPedidoPreco
+  lerBaseProdutos, lerBaseFornecedores, LinhaBase, FornecedorBase, estimativaReferencia, mensagemPedidoPreco,
+  casarCatalogo
 } from "../cotacoesUtils";
 
 // ---------------------------------------------------------------------------
@@ -387,7 +388,44 @@ export default function CotacoesModule() {
   const [impTexto, setImpTexto] = useState("");
   const [revisao, setRevisao] = useState<LinhaRevisao[] | null>(null);
   const [salvandoImp, setSalvandoImp] = useState(false);
-  const [impModo, setImpModo] = useState<"cotacao" | "base">("cotacao");
+  const [impModo, setImpModo] = useState<"cotacao" | "catalogo" | "base">("cotacao");
+
+  // Catálogo sem preço
+  const [catTexto, setCatTexto] = useState("");
+  const [catRevisao, setCatRevisao] = useState<{ produto: ProdutoCompra; termos: string[]; marcado: boolean; jaTem: boolean }[] | null>(null);
+  const [salvandoCat, setSalvandoCat] = useState(false);
+
+  const lerCatalogo = () => {
+    if (!impFornecedor) { setErro("Escolha o fornecedor do catálogo."); return; }
+    const achados = casarCatalogo(catTexto, produtos);
+    if (achados.length === 0) { setErro("Nenhum produto da base bateu com esse catálogo. Confira se a base já foi importada."); return; }
+    // marca por padrão as categorias em que o fornecedor já atende (ou tudo, se ele ainda não tem catálogo)
+    const cats = new Set(produtos.filter(p => (p.fornecedorIds || []).includes(impFornecedor)).map(p => p.categoria || ""));
+    setCatRevisao(achados.map(a => {
+      const jaTem = (a.produto.fornecedorIds || []).includes(impFornecedor);
+      return { ...a, jaTem, marcado: jaTem || cats.size === 0 || cats.has(a.produto.categoria || "") };
+    }));
+  };
+
+  const salvarCatalogo = async () => {
+    if (!catRevisao) return;
+    setSalvandoCat(true);
+    try {
+      let add = 0, rem = 0;
+      for (const r of catRevisao) {
+        const ids = r.produto.fornecedorIds || [];
+        if (r.marcado && !r.jaTem) { await appDb.update("produtos_compra", r.produto.id!, { fornecedorIds: [...ids, impFornecedor] }); add++; }
+        if (!r.marcado && r.jaTem) { await appDb.update("produtos_compra", r.produto.id!, { fornecedorIds: ids.filter(x => x !== impFornecedor) }); rem++; }
+      }
+      setCatRevisao(null);
+      setCatTexto("");
+      setMsg(`Catálogo de ${nomeForn(impFornecedor)}: ${add} produto(s) adicionado(s)${rem ? `, ${rem} removido(s)` : ""}.`);
+    } catch (e: any) {
+      setErro("Erro ao salvar o catálogo: " + (e?.message || e));
+    } finally {
+      setSalvandoCat(false);
+    }
+  };
 
   // Base de produtos (planilha do inventário)
   const [baseLida, setBaseLida] = useState<{ arquivo: string; produtos: LinhaBase[]; fornecedores: FornecedorBase[] } | null>(null);
@@ -1175,8 +1213,70 @@ export default function CotacoesModule() {
         <div className="space-y-4">
           <div className="inline-flex bg-slate-900 border border-slate-800 rounded-lg p-1">
             <button onClick={() => setImpModo("cotacao")} className={`px-3 py-1.5 text-sm rounded-md ${impModo === "cotacao" ? "bg-slate-700 text-white" : "text-slate-400"}`}>Cotação de fornecedor</button>
+            <button onClick={() => setImpModo("catalogo")} className={`px-3 py-1.5 text-sm rounded-md ${impModo === "catalogo" ? "bg-slate-700 text-white" : "text-slate-400"}`}>Catálogo sem preço</button>
             <button onClick={() => setImpModo("base")} className={`px-3 py-1.5 text-sm rounded-md ${impModo === "base" ? "bg-slate-700 text-white" : "text-slate-400"}`}>Base de produtos (inventário)</button>
           </div>
+
+          {impModo === "catalogo" && (
+            <div className={`${card} p-4 space-y-3`}>
+              <div>
+                <h3 className="text-white font-semibold">Catálogo sem preço</h3>
+                <p className="text-xs text-slate-400 mt-1">
+                  Cole o texto do catálogo (no PDF: selecionar tudo e copiar). O sistema encontra os produtos da sua base que o fornecedor trabalha.
+                  Depois é só usar "Pedir preço" na lista de compras ou "Pedir tabela de preços" no cartão do fornecedor.
+                </p>
+              </div>
+              {!catRevisao ? (
+                <>
+                  <div className="flex gap-2 items-end flex-wrap">
+                    <div>
+                      <label className="text-[11px] text-slate-400 block">Fornecedor</label>
+                      {seletorFornecedor(impFornecedor, setImpFornecedor)}
+                    </div>
+                  </div>
+                  <textarea value={catTexto} onChange={e => setCatTexto(e.target.value)} rows={10}
+                    placeholder={"Ex.:\nAzeitonas verde e Preta\nEm Conservas: Palmito, Cogumelos, Pepininho, Cebolinha\nTirolez: requeijão cremoso, cheddar, parmesão, mussarela"}
+                    className={`${inputCls} w-full font-mono text-xs`} />
+                  <div className="flex justify-end">
+                    <button onClick={lerCatalogo} disabled={!catTexto.trim()} className={btnPrim}><Search className="h-4 w-4" /> Encontrar produtos</button>
+                  </div>
+                </>
+              ) : (
+                <div className="space-y-3">
+                  <div className="flex flex-wrap justify-between items-center gap-2">
+                    <p className="text-sm text-slate-300">
+                      {catRevisao.filter(r => r.marcado).length} de {catRevisao.length} produto(s) marcados para <strong className="text-white">{nomeForn(impFornecedor)}</strong>.
+                      <span className="text-xs text-slate-500"> Desmarque o que ele não vende.</span>
+                    </p>
+                    <div className="flex gap-2">
+                      <button onClick={() => setCatRevisao(null)} className={btnSec}>Voltar</button>
+                      <button onClick={salvarCatalogo} disabled={salvandoCat} className={btnPrim}><Check className="h-4 w-4" /> {salvandoCat ? "Salvando..." : "Salvar catálogo"}</button>
+                    </div>
+                  </div>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-xs">
+                      <thead className="text-slate-500 border-b border-slate-800">
+                        <tr><th className="py-2"></th><th className="text-left py-2 pr-2">Produto</th><th className="text-left py-2 pr-2">Categoria</th><th className="text-left py-2 pr-2">Encontrado por</th><th className="text-left py-2">Outros fornecedores</th></tr>
+                      </thead>
+                      <tbody>
+                        {catRevisao.map((r, i) => (
+                          <tr key={r.produto.id} className={`border-t border-slate-800/60 ${r.marcado ? "" : "opacity-50"}`}>
+                            <td className="py-1.5 pr-2">
+                              <input type="checkbox" checked={r.marcado} onChange={e => { const v = e.target.checked; setCatRevisao(c => c && c.map((x, k) => k === i ? { ...x, marcado: v } : x)); }} />
+                            </td>
+                            <td className="py-1.5 pr-2 text-slate-200">{r.produto.nome}{r.jaTem && <span className="text-emerald-400"> · já estava</span>}</td>
+                            <td className="py-1.5 pr-2 text-slate-500">{r.produto.categoria}</td>
+                            <td className="py-1.5 pr-2 text-slate-400">{r.termos.join(", ")}</td>
+                            <td className="py-1.5 text-slate-500">{nomesCatalogo(r.produto).filter(n => n !== nomeForn(impFornecedor)).join(", ") || "—"}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
 
           {impModo === "base" && (
             <div className={`${card} p-4 space-y-4`}>
