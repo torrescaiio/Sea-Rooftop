@@ -1152,8 +1152,10 @@ export default function CotacoesModule() {
                                     {x.tipo === "fornecedor" && selectFornecedor()}
                                     {x.tipo === "preco" && <span className="text-[11px] text-slate-400">Informe a referência em "Produto" ou lance uma cotação em "Cotações".</span>}
                                     {x.tipo === "referencia" && (
-                                      <span className="text-[11px] text-slate-400">Corrija a referência abaixo ou</span>
+                                      <>
+                                        <span className="text-[11px] text-slate-400">Corrija a referência abaixo ou</span>
                                         <button onClick={() => dispensarAviso(p, x.texto)} className={`${btnSec} text-xs py-1`}><Check className="h-3.5 w-3.5" /> Está certo</button>
+                                      </>
                                     )}
                                   </div>
                                 ))}
