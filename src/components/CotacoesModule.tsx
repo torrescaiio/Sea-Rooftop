@@ -130,7 +130,7 @@ export default function CotacoesModule() {
     const partes = partesConferir(p);
     const temCotacao = (vigentes.get(p.id!) || []).length > 0;
     if (partes.includes(AVISO_UNIDADE)) out.push({ tipo: "unidade", texto: "O inventário não dizia a unidade. Como comparar o preço deste produto?" });
-    if (!(p.fornecedorIds || []).some(id => fornecedorPorId.has(id))) out.push({ tipo: "fornecedor", texto: "Nenhum fornecedor ligado a este produto." });
+    if (!temCotacao && !(p.fornecedorIds || []).some(id => fornecedorPorId.has(id))) out.push({ tipo: "fornecedor", texto: "Nenhum fornecedor ligado a este produto." });
     if (!temCotacao && !p.precoReferencia) out.push({ tipo: "preco", texto: "Sem preço: nenhuma cotação e nenhuma referência." });
     // avisos sobre o preço do inventário só importam enquanto não há cotação
     if (!temCotacao && p.precoReferencia) {
@@ -396,6 +396,14 @@ export default function CotacoesModule() {
     await appDb.update("produtos_compra", p.id!, patch);
   };
 
+  // quem mandou preço passa a constar como fornecedor do produto
+  const ligarFornecedor = async (produtoId: string, fornecedorId: string, produto?: ProdutoCompra) => {
+    const p = produto || produtoPorId.get(produtoId);
+    const ids = p?.fornecedorIds || [];
+    if (!ids.includes(fornecedorId)) await appDb.update("produtos_compra", produtoId, { fornecedorIds: [...ids, fornecedorId] });
+    if (p) p.fornecedorIds = [...ids.filter(x => x !== fornecedorId), fornecedorId];
+  };
+
   const dispensarAviso = (p: ProdutoCompra, texto: string) =>
     appDb.update("produtos_compra", p.id!, { conferir: partesConferir(p).filter(x => x !== texto).join(" | ") });
 
@@ -418,6 +426,7 @@ export default function CotacoesModule() {
       descricaoOriginal: cotManual.descricao.trim() || produtoPorId.get(produtoId)?.nome,
       origem: "manual", data: new Date(cotManual.data + "T12:00:00").toISOString(),
     });
+    await ligarFornecedor(produtoId, cotManual.fornecedorId);
     setCotManual({ fornecedorId: cotManual.fornecedorId, preco: "", conteudo: "1", descricao: "", data: hojeISO() });
     setMsg("Cotação salva.");
   };
@@ -682,6 +691,7 @@ export default function CotacoesModule() {
           descricaoOriginal: l.descricao, origem: impOrigem,
           data: new Date(impData + "T12:00:00").toISOString(),
         });
+        await ligarFornecedor(produtoId, impFornecedor);
         salvas++;
       }
       setRevisao(null);
