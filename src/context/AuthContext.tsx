@@ -21,6 +21,8 @@ interface AuthContextType {
   isChefBar: boolean;
   isSolicitante: boolean;
   loading: boolean;
+  noAccess: boolean;
+  isRealAdmin: boolean;
   signOut: () => Promise<void>;
   refreshRole: () => Promise<void>;
 }
@@ -34,6 +36,8 @@ const AuthContext = createContext<AuthContextType>({
   isChefBar: false,
   isSolicitante: false,
   loading: true,
+  noAccess: false,
+  isRealAdmin: false,
   signOut: async () => {},
   refreshRole: async () => {},
 });
@@ -45,16 +49,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [role, setRoleState] = useState<UserRole>("admin");
   const [loading, setLoading] = useState(true);
 
-  // Helper para inferir role inicial baseado no e-mail ou nome
-  const inferRole = (email?: string | null, displayName?: string | null): UserRole => {
-    const text = `${email || ""} ${displayName || ""}`.toLowerCase();
-    if (text.includes("cozinha") || text.includes("chef_cozinha")) return "chef_cozinha";
-    if (text.includes("bar") || text.includes("chef_bar") || text.includes("bartender")) return "chef_bar";
-    return "admin";
-  };
+  // true quando a pessoa fez login mas não foi cadastrada pela gerência
+  const [noAccess, setNoAccess] = useState(false);
 
-  const loadUserRole = async (rawUser: any): Promise<{ role: UserRole; allowedModules: any; setor: any }> => {
-    if (!rawUser) return { role: "admin", allowedModules: "ALL", setor: "geral" };
+  // Só quem tem cadastro em user_roles (feito pela gerência em Configurações) entra.
+  // Sem cadastro ou com erro de leitura: sem acesso (nunca vira admin por padrão).
+  const loadUserRole = async (rawUser: any): Promise<{ role: UserRole; allowedModules: any; setor: any } | null> => {
+    if (!rawUser) return null;
 
     try {
       const roleDoc = await appDb.get("user_roles", rawUser.uid);
@@ -64,40 +65,26 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           allowedModules: roleDoc.allowedModules || "ALL",
           setor: roleDoc.setor || (roleDoc.role === "chef_cozinha" ? "cozinha" : roleDoc.role === "chef_bar" ? "bar" : "geral")
         };
-      } else {
-        // Se ainda não tem documento no Firestore, cria com a role inferida
-        const defaultRole = inferRole(rawUser.email, rawUser.displayName);
-        const setor = defaultRole === "chef_cozinha" ? "cozinha" : defaultRole === "chef_bar" ? "bar" : "geral";
-        const newDoc = {
-          email: rawUser.email || "usuario@searooftop.com.br",
-          displayName: rawUser.displayName || "Usuário",
-          role: defaultRole,
-          setor,
-          allowedModules: defaultRole === "admin" ? "ALL" : ["gestao_compras", "fichas_tecnicas", "checklist"],
-          createdAt: new Date().toISOString()
-        };
-        await appDb.set("user_roles", rawUser.uid, newDoc);
-        return {
-          role: defaultRole,
-          allowedModules: newDoc.allowedModules,
-          setor
-        };
       }
+      return null;
     } catch (err) {
       console.warn("Aviso ao carregar role do usuário no Firestore:", err);
-      const fallbackRole = inferRole(rawUser.email, rawUser.displayName);
-      return {
-        role: fallbackRole,
-        allowedModules: "ALL",
-        setor: fallbackRole === "chef_cozinha" ? "cozinha" : fallbackRole === "chef_bar" ? "bar" : "geral"
-      };
+      return null;
     }
   };
 
   useEffect(() => {
     const unsubscribe = appAuth.onAuthStateChange(async (firebaseUser: any) => {
       if (firebaseUser) {
-        const { role: userRole, allowedModules, setor } = await loadUserRole(firebaseUser);
+        const loaded = await loadUserRole(firebaseUser);
+        if (!loaded) {
+          setNoAccess(true);
+          setUser(null);
+          setLoading(false);
+          return;
+        }
+        setNoAccess(false);
+        const { role: userRole, allowedModules, setor } = loaded;
         setRoleState(userRole);
         setUser({
           uid: firebaseUser.uid,
@@ -117,41 +104,30 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return () => unsubscribe();
   }, []);
 
+  // "Ver como" cozinha/bar: só para admin e só nesta tela (não grava no banco).
+  // Assim o admin nunca perde o próprio acesso ao trocar a visão.
   const setRole = async (newRole: UserRole) => {
+    if (!user || user.role !== "admin") return;
     setRoleState(newRole);
-    if (user) {
-      const setor = newRole === "chef_cozinha" ? "cozinha" : newRole === "chef_bar" ? "bar" : "geral";
-      const updatedUser: AppUser = {
-        ...user,
-        role: newRole,
-        setor
-      };
-      setUser(updatedUser);
-
-      // Persiste no Firestore para manter consistência
-      try {
-        await appDb.update("user_roles", user.uid, {
-          role: newRole,
-          setor,
-          updatedAt: new Date().toISOString()
-        });
-      } catch (err) {
-        console.warn("Aviso ao salvar nova role no Firestore:", err);
-      }
-    }
   };
 
   const refreshRole = async () => {
     if (user) {
-      const { role: refreshedRole, allowedModules, setor } = await loadUserRole(user);
-      setRoleState(refreshedRole);
-      setUser(prev => prev ? { ...prev, role: refreshedRole, allowedModules, setor } : null);
+      const loaded = await loadUserRole(user);
+      if (!loaded) {
+        setNoAccess(true);
+        setUser(null);
+        return;
+      }
+      setRoleState(loaded.role);
+      setUser(prev => prev ? { ...prev, role: loaded.role, allowedModules: loaded.allowedModules, setor: loaded.setor } : null);
     }
   };
 
   const signOut = async () => {
     await appAuth.signOut();
     setUser(null);
+    setNoAccess(false);
     setRoleState("admin");
   };
 
@@ -171,6 +147,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         isChefBar,
         isSolicitante,
         loading,
+        noAccess,
+        isRealAdmin: user?.role === "admin",
         signOut,
         refreshRole
       }}
