@@ -92,7 +92,7 @@ export default function App() {
           <Lock className="h-10 w-10 text-slate-500 mx-auto" />
           <h1 className="text-lg font-bold text-white">Sem acesso ao Command Center</h1>
           <p className="text-sm text-slate-400">
-            Tua conta ainda não foi liberada. Pede para a gerência te cadastrar em Configurações → Usuários.
+            Sua conta ainda não foi liberada. Solicite o cadastro à gerência (Configurações → Usuários).
           </p>
           <button onClick={handleSignOut} className="bg-slate-800 hover:bg-slate-700 text-slate-200 text-sm px-4 py-2 rounded-lg">
             Sair

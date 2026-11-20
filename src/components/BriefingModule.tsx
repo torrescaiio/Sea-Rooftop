@@ -58,7 +58,7 @@ export const montarTexto = (b: Briefing): string => {
   linhas.push("*🚫 Em falta hoje (não vender)*", nada("falta") || !b.emFalta.length ? "Nada em falta. Cardápio completo." : b.emFalta.map(i => `• ${i}`).join("\n"), "");
   if (!nada("vender") && b.vender.trim()) linhas.push("*⭐ Foco de venda*", b.vender.trim(), "");
   if (!nada("recados") && b.recados.trim()) linhas.push("*📢 Recados*", b.recados.trim(), "");
-  linhas.push("Bom serviço, time! 💪");
+  linhas.push("Bom serviço a todos.");
   return linhas.join("\n");
 };
 
@@ -141,14 +141,19 @@ export default function BriefingModule() {
     }
   };
 
+  // Com seções pendentes, o 1º toque só avisa; o 2º envia mesmo assim
+  const [confirmarEnvio, setConfirmarEnvio] = useState(false);
+  useEffect(() => { if (!faltando.length) setConfirmarEnvio(false); }, [faltando.length]);
+
   const enviarWhatsApp = async () => {
-    if (faltando.length && !confirm(`Ainda não preencheu: ${faltando.map(s => NOMES[s]).join(", ")}.\n\nEnviar assim mesmo?`)) return;
+    if (faltando.length && !confirmarEnvio) { setConfirmarEnvio(true); return; }
+    setConfirmarEnvio(false);
     // abre a janela antes do await para o navegador do celular não bloquear
     const janela = window.open(`https://wa.me/?text=${encodeURIComponent(texto)}`, "_blank");
     try {
       await salvar();
     } catch (err: any) {
-      alert("Enviei pro WhatsApp, mas não consegui salvar o histórico: " + err.message);
+      alert("A mensagem foi aberta no WhatsApp, mas não foi possível salvar no histórico: " + err.message);
     }
     if (!janela) window.location.href = `https://wa.me/?text=${encodeURIComponent(texto)}`;
   };
@@ -160,14 +165,14 @@ export default function BriefingModule() {
       setTimeout(() => setCopiado(false), 2000);
       await salvar();
     } catch (err: any) {
-      alert("Não consegui copiar/salvar: " + err.message);
+      alert("Não foi possível copiar ou salvar: " + err.message);
     }
   };
 
   const BotaoNada = ({ s }: { s: Secao }) => (
     <button type="button" onClick={() => toggleNada(s)}
       className={`text-[11px] px-2 py-0.5 rounded-full border transition cursor-pointer ${nada(s) ? "bg-slate-700 border-slate-600 text-slate-200" : "border-slate-700 text-slate-500 hover:text-slate-300"}`}>
-      {nada(s) ? "✓ nada hoje" : "nada hoje"}
+      {nada(s) ? "✓ Nada hoje" : "Nada hoje"}
     </button>
   );
 
@@ -189,17 +194,17 @@ export default function BriefingModule() {
           <h2 className="text-2xl font-bold tracking-tight text-white flex items-center gap-2">
             <Megaphone className="h-6 w-6 text-cyan-400" /> Briefing do Turno
           </h2>
-          <p className="text-sm text-slate-400">Uma mensagem só pro grupo da equipe. Cada bloco precisa estar preenchido ou marcado "nada hoje".</p>
+          <p className="text-sm text-slate-400">Comunicado único para a equipe. Cada seção deve ser preenchida ou marcada como "Nada hoje".</p>
         </div>
         <div className="flex gap-2">
-          {ultimo && <button onClick={usarUltimo} className={btnSec} title="Copia horários, foco de venda e itens em falta do último briefing">Usar o último como base</button>}
+          {ultimo && <button onClick={usarUltimo} className={btnSec} title="Copia horários, foco de venda e itens em falta do último briefing">Usar o anterior como base</button>}
           <button onClick={() => setVerHistorico(true)} className={btnSec}><History className="h-4 w-4" /></button>
         </div>
       </div>
 
       {jaEnviadoHoje && (
         <div className="p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 text-sm">
-          Briefing de {b.data.split("-").reverse().join("/")} ({jaEnviadoHoje.turno}) já foi enviado por {jaEnviadoHoje.enviadoPor || "alguém"}. Se mandar de novo, ele é atualizado.
+          O briefing de {b.data.split("-").reverse().join("/")} ({jaEnviadoHoje.turno}) já foi enviado por {jaEnviadoHoje.enviadoPor || "outro usuário"}. Um novo envio substitui o registro.
         </div>
       )}
 
@@ -286,15 +291,18 @@ export default function BriefingModule() {
           {faltando.length > 0 && (
             <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-300 text-sm flex gap-2">
               <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
-              <span>Falta resolver: <b>{faltando.map(s => NOMES[s]).join(", ")}</b>. Preenche ou marca "nada hoje".</span>
+              <span>
+                Seções pendentes: <b>{faltando.map(s => NOMES[s]).join(", ")}</b>. Preencha ou marque "Nada hoje".
+                {confirmarEnvio && <><br /><b>Toque em "Enviar mesmo assim" para enviar com essas seções em branco.</b></>}
+              </span>
             </div>
           )}
 
           <div className="grid grid-cols-2 gap-2">
-            <button onClick={enviarWhatsApp} className={btnPrim} disabled={salvando}><Send className="h-4 w-4" /> Enviar no WhatsApp</button>
+            <button onClick={enviarWhatsApp} className={btnPrim} disabled={salvando}><Send className="h-4 w-4" /> {confirmarEnvio ? "Enviar mesmo assim" : "Enviar no WhatsApp"}</button>
             <button onClick={copiar} className={btnSec} disabled={salvando}>{copiado ? <><Check className="h-4 w-4" /> Copiado</> : <><Copy className="h-4 w-4" /> Copiar texto</>}</button>
           </div>
-          <p className="text-[11px] text-slate-500">Ao enviar ou copiar, o briefing fica salvo no histórico e o "Meu Dia" marca como enviado.</p>
+          <p className="text-[11px] text-slate-500">Ao enviar ou copiar, o briefing é salvo no histórico e marcado como enviado no Meu Dia.</p>
         </div>
       </div>
 

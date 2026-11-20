@@ -85,13 +85,14 @@ export default function MeuDiaModule({ onNavigate }: Props) {
   const eventosAConfirmar = agenda.filter(a => a.status === "A Confirmar" && a.data >= hoje && a.data <= em7dias);
   const eventosHoje = agenda.filter(a => a.data === hoje && a.status !== "Cancelado");
 
+  const plural = (n: number, um: string, varios: string) => (n === 1 ? um : varios);
   const alertas = [
-    { n: requisicoesPendentes.length, txt: "requisição(ões) de compra esperando tua aprovação", mod: "gestao_compras", icon: ShoppingCart, cor: "text-amber-400" },
-    { n: reparosUrgentes.length, txt: "reparo(s) URGENTE(S) em aberto", mod: "manutencao", icon: Wrench, cor: "text-rose-400" },
-    { n: checklistVencido.length, txt: "tarefa(s) do checklist vencida(s) ou de prioridade alta", mod: "checklist", icon: AlertTriangle, cor: "text-rose-400" },
-    { n: ocorrenciasAbertas.length, txt: "ocorrência(s) sem resolução", mod: "ocorrencias", icon: AlertTriangle, cor: "text-amber-400" },
-    { n: eventosAConfirmar.length, txt: "atração(ões) dos próximos 7 dias ainda a confirmar", mod: "agenda", icon: Calendar, cor: "text-amber-400" },
-    { n: reparosAbertos.length - reparosUrgentes.length, txt: "outro(s) reparo(s) pendente(s)", mod: "manutencao", icon: Wrench, cor: "text-slate-400" },
+    { n: requisicoesPendentes.length, txt: plural(requisicoesPendentes.length, "requisição de compra aguardando aprovação", "requisições de compra aguardando aprovação"), mod: "gestao_compras", icon: ShoppingCart, cor: "text-amber-400" },
+    { n: reparosUrgentes.length, txt: plural(reparosUrgentes.length, "reparo urgente em aberto", "reparos urgentes em aberto"), mod: "manutencao", icon: Wrench, cor: "text-rose-400" },
+    { n: checklistVencido.length, txt: plural(checklistVencido.length, "tarefa vencida ou de alta prioridade no checklist", "tarefas vencidas ou de alta prioridade no checklist"), mod: "checklist", icon: AlertTriangle, cor: "text-rose-400" },
+    { n: ocorrenciasAbertas.length, txt: plural(ocorrenciasAbertas.length, "ocorrência sem resolução", "ocorrências sem resolução"), mod: "ocorrencias", icon: AlertTriangle, cor: "text-amber-400" },
+    { n: eventosAConfirmar.length, txt: plural(eventosAConfirmar.length, "atração dos próximos 7 dias aguardando confirmação", "atrações dos próximos 7 dias aguardando confirmação"), mod: "agenda", icon: Calendar, cor: "text-amber-400" },
+    { n: reparosAbertos.length - reparosUrgentes.length, txt: plural(reparosAbertos.length - reparosUrgentes.length, "reparo pendente", "reparos pendentes"), mod: "manutencao", icon: Wrench, cor: "text-slate-400" },
   ].filter(a => a.n > 0);
 
   // ---- Ações ----
@@ -108,7 +109,7 @@ export default function MeuDiaModule({ onNavigate }: Props) {
         await appDb.delete("rotina_execucoes", chave);
       }
     } catch (err: any) {
-      alert("Não consegui salvar: " + err.message);
+      alert("Não foi possível salvar: " + err.message);
     }
   };
 
@@ -122,7 +123,7 @@ export default function MeuDiaModule({ onNavigate }: Props) {
       });
       setCapturaTexto("");
     } catch (err: any) {
-      alert("Não consegui salvar: " + err.message);
+      alert("Não foi possível salvar: " + err.message);
     }
   };
 
@@ -133,7 +134,7 @@ export default function MeuDiaModule({ onNavigate }: Props) {
     try {
       await appDb.set("prioridades_dia", hoje, { itens, data: hoje, createdAt: new Date().toISOString() });
     } catch (err: any) {
-      alert("Não consegui salvar: " + err.message);
+      alert("Não foi possível salvar: " + err.message);
     }
   };
 
@@ -145,12 +146,16 @@ export default function MeuDiaModule({ onNavigate }: Props) {
     setNovaPrioridade("");
   };
 
+  const [carregandoRotina, setCarregandoRotina] = useState(false);
   const carregarSugerida = async () => {
-    if (!confirm("Carregar a rotina sugerida? Depois tu pode editar ou apagar qualquer tarefa.")) return;
+    if (carregandoRotina || tarefas.length > 0) return;
+    setCarregandoRotina(true);
     try {
       for (const t of ROTINA_SUGERIDA) await appDb.add("rotina_tarefas", { ...t, ativo: true });
     } catch (err: any) {
-      alert("Erro ao carregar rotina: " + err.message);
+      alert("Erro ao carregar a rotina: " + err.message);
+    } finally {
+      setCarregandoRotina(false);
     }
   };
 
@@ -178,7 +183,7 @@ export default function MeuDiaModule({ onNavigate }: Props) {
         <div className="flex gap-2">
           <button onClick={() => onNavigate("briefing")} className={briefingHoje ? btnSec : btnPrim}>
             <Megaphone className="h-4 w-4" />
-            {briefingHoje ? "Briefing enviado ✓" : "Fazer briefing do turno"}
+            {briefingHoje ? "Briefing enviado ✓" : "Preparar briefing do turno"}
           </button>
           <button onClick={() => setEditarRotina(true)} className={btnSec} title="Editar rotina">
             <Settings2 className="h-4 w-4" />
@@ -193,12 +198,12 @@ export default function MeuDiaModule({ onNavigate }: Props) {
           <input
             value={capturaTexto}
             onChange={e => setCapturaTexto(e.target.value)}
-            placeholder="Lembrou de algo? Anota aqui e tira da cabeça…"
+            placeholder="Registrar pendência rápida…"
             className={`${inputCls} w-full pl-9 py-2.5`}
           />
         </div>
         <button type="submit" className={btnPrim} disabled={!capturaTexto.trim()}>
-          <Plus className="h-4 w-4" /><span className="hidden sm:inline">Anotar</span>
+          <Plus className="h-4 w-4" /><span className="hidden sm:inline">Registrar</span>
         </button>
       </form>
 
@@ -209,7 +214,7 @@ export default function MeuDiaModule({ onNavigate }: Props) {
           <div className={card}>
             <div className="flex items-center justify-between mb-3">
               <h3 className="text-sm font-bold text-white flex items-center gap-2">
-                <Target className="h-4 w-4 text-cyan-400" /> As 3 coisas que importam hoje
+                <Target className="h-4 w-4 text-cyan-400" /> Prioridades do dia
               </h3>
               <span className="text-[11px] text-slate-500">{prioridades.filter(p => p.feito).length}/{prioridades.length || 3}</span>
             </div>
@@ -228,7 +233,7 @@ export default function MeuDiaModule({ onNavigate }: Props) {
               {prioridades.length < 3 && (
                 <form onSubmit={addPrioridade} className="flex gap-2 pt-1">
                   <input value={novaPrioridade} onChange={e => setNovaPrioridade(e.target.value)}
-                    placeholder={prioridades.length === 0 ? "Se só der pra fazer uma coisa hoje, qual é?" : "Próxima prioridade…"}
+                    placeholder={prioridades.length === 0 ? "Qual é a principal prioridade de hoje?" : "Próxima prioridade (máx. 3)…"}
                     className={`${inputCls} flex-1`} />
                   <button type="submit" className={btnSec} disabled={!novaPrioridade.trim()}><Plus className="h-4 w-4" /></button>
                 </form>
@@ -240,7 +245,7 @@ export default function MeuDiaModule({ onNavigate }: Props) {
           <div className={card}>
             <div className="flex items-center justify-between mb-3">
               <h3 className="text-sm font-bold text-white flex items-center gap-2">
-                <Clock className="h-4 w-4 text-cyan-400" /> Rotina de hoje
+                <Clock className="h-4 w-4 text-cyan-400" /> Rotina do dia
               </h3>
               {totalHoje > 0 && <span className="text-[11px] text-slate-400 font-mono">{feitas.length}/{totalHoje} · {progresso}%</span>}
             </div>
@@ -252,15 +257,15 @@ export default function MeuDiaModule({ onNavigate }: Props) {
 
             {tarefas.length === 0 ? (
               <div className="text-center py-6 space-y-3">
-                <p className="text-sm text-slate-400">Tua rotina ainda tá vazia.</p>
-                <button onClick={carregarSugerida} className={btnPrim}>
-                  <Sparkles className="h-4 w-4" /> Carregar rotina sugerida de gerente
+                <p className="text-sm text-slate-400">Nenhuma rotina cadastrada.</p>
+                <button onClick={carregarSugerida} className={btnPrim} disabled={carregandoRotina}>
+                  <Sparkles className="h-4 w-4" /> {carregandoRotina ? "Carregando…" : "Carregar rotina padrão da gerência"}
                 </button>
-                <p className="text-[11px] text-slate-500">Diárias, semanais e mensais. Tu edita do teu jeito depois.</p>
+                <p className="text-[11px] text-slate-500">Inclui tarefas diárias, semanais e mensais, que podem ser editadas a qualquer momento.</p>
               </div>
             ) : (
               <div className="space-y-1">
-                {pendentes.length === 0 && <p className="text-sm text-emerald-400 py-2">Rotina de hoje concluída. 👊</p>}
+                {pendentes.length === 0 && <p className="text-sm text-emerald-400 py-2">Rotina do dia concluída.</p>}
                 {pendentes.map(({ tarefa, chave, ocorrencia, atrasada }) => (
                   <button key={chave} onClick={() => marcar(chave, tarefa.id!, ocorrencia, true)}
                     className="w-full flex items-start gap-3 text-left p-2 rounded-lg hover:bg-white/[0.03] transition cursor-pointer">
@@ -293,7 +298,7 @@ export default function MeuDiaModule({ onNavigate }: Props) {
           {eventosHoje.length > 0 && (
             <div className={`${card} border-cyan-500/30`}>
               <h3 className="text-sm font-bold text-white flex items-center gap-2 mb-2">
-                <Calendar className="h-4 w-4 text-cyan-400" /> Hoje na casa
+                <Calendar className="h-4 w-4 text-cyan-400" /> Programação de hoje
               </h3>
               {eventosHoje.map(ev => (
                 <div key={ev.id} className="text-sm text-slate-300">
@@ -308,10 +313,10 @@ export default function MeuDiaModule({ onNavigate }: Props) {
 
           <div className={card}>
             <h3 className="text-sm font-bold text-white flex items-center gap-2 mb-3">
-              <AlertTriangle className="h-4 w-4 text-amber-400" /> O que tá pegando
+              <AlertTriangle className="h-4 w-4 text-amber-400" /> Pendências em aberto
             </h3>
             {alertas.length === 0 ? (
-              <p className="text-sm text-slate-500">Nada parado nos outros módulos. 🎉</p>
+              <p className="text-sm text-slate-500">Nenhuma pendência nos demais módulos.</p>
             ) : (
               <div className="space-y-1">
                 {alertas.map((a, i) => {
@@ -335,7 +340,7 @@ export default function MeuDiaModule({ onNavigate }: Props) {
               <span className="text-[11px] text-slate-500 font-normal">({caixaEntrada.length})</span>
             </h3>
             {caixaEntrada.length === 0 ? (
-              <p className="text-sm text-slate-500">Vazia. O que tu anotar lá em cima aparece aqui.</p>
+              <p className="text-sm text-slate-500">Nenhum item. As pendências registradas no campo acima aparecem aqui.</p>
             ) : (
               <div className="space-y-1">
                 {caixaEntrada.map(c => (
@@ -347,7 +352,7 @@ export default function MeuDiaModule({ onNavigate }: Props) {
                   </div>
                 ))}
                 <button onClick={() => onNavigate("checklist")} className="text-[11px] text-cyan-400 hover:underline pt-1 cursor-pointer">
-                  Organizar no Checklist (dar dono e prazo) →
+                  Organizar no Checklist (definir responsável e prazo) →
                 </button>
               </div>
             )}
@@ -384,9 +389,17 @@ function EditorRotina({ tarefas, onClose, onCarregarSugerida }: { tarefas: Taref
     }
   };
 
+  // Apagar em dois toques: o primeiro pede confirmação na própria linha
+  const [apagando, setApagando] = useState<string | null>(null);
   const remover = async (t: TarefaRotina) => {
-    if (!t.id || !confirm(`Apagar "${t.titulo}" da rotina?`)) return;
-    await appDb.delete("rotina_tarefas", t.id);
+    if (!t.id) return;
+    if (apagando !== t.id) { setApagando(t.id); return; }
+    setApagando(null);
+    try {
+      await appDb.delete("rotina_tarefas", t.id);
+    } catch (err: any) {
+      alert("Não foi possível excluir: " + err.message);
+    }
   };
 
   const grupos: { f: Frequencia; nome: string }[] = [
@@ -397,7 +410,7 @@ function EditorRotina({ tarefas, onClose, onCarregarSugerida }: { tarefas: Taref
     <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4" onClick={onClose}>
       <div className="bg-[#0b0b0b] border border-slate-800 w-full sm:max-w-2xl max-h-[92dvh] overflow-y-auto rounded-t-2xl sm:rounded-2xl p-5 space-y-5" onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-between">
-          <h3 className="text-lg font-bold text-white">Minha rotina</h3>
+          <h3 className="text-lg font-bold text-white">Rotina da gerência</h3>
           <button onClick={onClose} className="text-slate-400 hover:text-white cursor-pointer"><X className="h-5 w-5" /></button>
         </div>
 
@@ -423,7 +436,7 @@ function EditorRotina({ tarefas, onClose, onCarregarSugerida }: { tarefas: Taref
         </form>
 
         {tarefas.length === 0 && (
-          <button onClick={onCarregarSugerida} className={`${btnSec} w-full`}><Sparkles className="h-4 w-4" /> Carregar rotina sugerida</button>
+          <button onClick={onCarregarSugerida} className={`${btnSec} w-full`}><Sparkles className="h-4 w-4" /> Carregar rotina padrão da gerência</button>
         )}
 
         {grupos.map(g => {
@@ -442,7 +455,14 @@ function EditorRotina({ tarefas, onClose, onCarregarSugerida }: { tarefas: Taref
                         {descreverFrequencia(t)}{t.horario ? ` · ${t.horario}` : ""}{t.responsavel ? ` · ${t.responsavel}` : ""}
                       </div>
                     </div>
-                    <button onClick={() => remover(t)} className="text-slate-600 hover:text-rose-400 cursor-pointer"><Trash2 className="h-4 w-4" /></button>
+                    {apagando === t.id ? (
+                      <div className="flex items-center gap-1">
+                        <button onClick={() => remover(t)} className="text-[11px] font-semibold bg-rose-600 hover:bg-rose-500 text-white px-2 py-1 rounded cursor-pointer">Excluir</button>
+                        <button onClick={() => setApagando(null)} className="text-[11px] text-slate-400 hover:text-white px-2 py-1 cursor-pointer">Cancelar</button>
+                      </div>
+                    ) : (
+                      <button onClick={() => remover(t)} className="text-slate-600 hover:text-rose-400 cursor-pointer" title="Excluir"><Trash2 className="h-4 w-4" /></button>
+                    )}
                   </div>
                 ))}
               </div>
