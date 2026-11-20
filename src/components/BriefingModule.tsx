@@ -3,6 +3,7 @@ import { appDb } from "../firebase";
 import { useAuth } from "../context/AuthContext";
 import { Megaphone, Send, Copy, Check, History, AlertTriangle, X, Plus } from "lucide-react";
 import { dataLocal, parseDataLocal } from "../rotinaUtils";
+import { Evento, linhaBriefing } from "../eventosUtils";
 
 // Cada seção precisa estar preenchida OU marcada como "nada hoje".
 // É isso que impede de esquecer de avisar alguma coisa.
@@ -72,11 +73,25 @@ export default function BriefingModule() {
   const [salvando, setSalvando] = useState(false);
   const [verHistorico, setVerHistorico] = useState(false);
 
+  const [eventos, setEventos] = useState<Evento[]>([]);
+
   useEffect(() => {
     const u1 = appDb.subscribe("briefings", setHistorico);
     const u2 = appDb.subscribe("agenda_eventos", setAgenda);
-    return () => { u1(); u2(); };
+    const u3 = appDb.subscribe("eventos", setEventos);
+    return () => { u1(); u2(); u3(); };
   }, []);
+
+  // Puxa os eventos e reservas de grupo do Planejador para a data escolhida
+  const eventosDoDia = useMemo(
+    () => eventos.filter(e => e.data === b.data && (e.status === "Confirmado" || e.status === "Orçamento"))
+      .sort((x, y) => (x.horarioInicio || "").localeCompare(y.horarioInicio || "")),
+    [eventos, b.data]
+  );
+  useEffect(() => {
+    if (b.reservas || !eventosDoDia.length) return;
+    setB(prev => ({ ...prev, reservas: eventosDoDia.map(linhaBriefing).join("\n") }));
+  }, [eventosDoDia]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Puxa a atração da Agenda para a data escolhida
   const atracoesDoDia = useMemo(
@@ -245,7 +260,7 @@ export default function BriefingModule() {
           </div>
 
           <div className={card}>
-            <Titulo s="reservas" />
+            <Titulo s="reservas">{eventosDoDia.length > 0 && <span className="text-[10px] normal-case text-cyan-400 font-normal">(puxado do Planejador)</span>}</Titulo>
             <textarea value={b.reservas} onChange={e => setB({ ...b, reservas: e.target.value })} rows={3}
               placeholder={"Ex.:\n• 20h · Aniversário da Ana · 15 pessoas · área externa · bolo próprio\n• 21h · Mesa 8 · cliente VIP"} className={`${inputCls} w-full`} />
           </div>

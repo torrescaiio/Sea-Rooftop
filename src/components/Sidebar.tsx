@@ -21,7 +21,8 @@ import {
   ChevronRight,
   Tag,
   Sun,
-  Megaphone
+  Megaphone,
+  PartyPopper
 } from "lucide-react";
 import { isFirebaseActive } from "../firebase";
 
@@ -35,6 +36,7 @@ interface SidebarProps {
 export const MENU_ITEMS = [
   { id: "meu_dia", name: "Meu Dia", icon: Sun },
   { id: "briefing", name: "Briefing do Turno", icon: Megaphone },
+  { id: "eventos", name: "Planejador de Eventos", icon: PartyPopper },
   { id: "dashboard", name: "Visão Geral", icon: LayoutDashboard },
   { id: "gestao_compras", name: "Requisições de Compras", icon: ShoppingCart },
   { id: "fichas_tecnicas", name: "Fichas Técnicas", icon: BookOpen },
@@ -46,7 +48,7 @@ export const MENU_ITEMS = [
   { id: "cotacoes", name: "Cotações & Fornecedores", icon: Tag },
   { id: "vinhos", name: "Carta de Vinhos", icon: Wine },
   { id: "limpeza", name: "Materiais de Limpeza", icon: Sparkles },
-  { id: "agenda", name: "Eventos & Atrações", icon: Calendar },
+  { id: "agenda", name: "Agenda de Atrações", icon: Calendar },
   { id: "balanco_eventos", name: "Balanço de Eventos", icon: Activity },
   { id: "contatos", name: "Agenda de Contatos", icon: BookOpen },
   { id: "extras", name: "Diárias", icon: Briefcase },

@@ -3,12 +3,13 @@ import { appDb } from "../firebase";
 import { useAuth } from "../context/AuthContext";
 import {
   Sun, CheckCircle2, Circle, Plus, Trash2, Inbox, Target, AlertTriangle, Wrench,
-  ShoppingCart, Calendar, Megaphone, Settings2, ChevronRight, Clock, X, Sparkles
+  ShoppingCart, Calendar, Megaphone, Settings2, ChevronRight, Clock, X, Sparkles, PartyPopper
 } from "lucide-react";
 import {
   TarefaRotina, ExecucaoRotina, Frequencia, DIAS_SEMANA, ROTINA_SUGERIDA,
   dataLocal, tarefasDoDia, descreverFrequencia
 } from "../rotinaUtils";
+import { Evento, resumoEvento } from "../eventosUtils";
 
 interface Props {
   onNavigate: (modulo: string) => void;
@@ -43,6 +44,7 @@ export default function MeuDiaModule({ onNavigate }: Props) {
   const [ocorrencias, setOcorrencias] = useState<any[]>([]);
   const [requisicoes, setRequisicoes] = useState<any[]>([]);
   const [agenda, setAgenda] = useState<any[]>([]);
+  const [eventos, setEventos] = useState<Evento[]>([]);
 
   const [loading, setLoading] = useState(true);
   const [capturaTexto, setCapturaTexto] = useState("");
@@ -58,6 +60,7 @@ export default function MeuDiaModule({ onNavigate }: Props) {
       appDb.subscribe("ocorrencias", setOcorrencias),
       appDb.subscribe("requisicoes", setRequisicoes),
       appDb.subscribe("agenda_eventos", setAgenda),
+      appDb.subscribe("eventos", setEventos),
       appDb.subscribe("briefings", d => setBriefingHoje(d.some((b: any) => b.data === hoje && b.enviado))),
       appDb.subscribe("prioridades_dia", d => {
         const doc = d.find((p: any) => p.id === hoje);
@@ -84,9 +87,15 @@ export default function MeuDiaModule({ onNavigate }: Props) {
   const em7dias = dataLocal(new Date(Date.now() + 7 * 86400000));
   const eventosAConfirmar = agenda.filter(a => a.status === "A Confirmar" && a.data >= hoje && a.data <= em7dias);
   const eventosHoje = agenda.filter(a => a.data === hoje && a.status !== "Cancelado");
+  const privadosHoje = eventos.filter(e => e.data === hoje && e.status !== "Cancelado");
+  const resumos = eventos.map(e => resumoEvento(e, hoje));
+  const tarefasEventoAtrasadas = resumos.reduce((s, r) => s + r.atrasadas.length, 0);
+  const tarefasEventoHoje = resumos.reduce((s, r) => s + r.paraHoje.length, 0);
 
   const plural = (n: number, um: string, varios: string) => (n === 1 ? um : varios);
   const alertas = [
+    { n: tarefasEventoAtrasadas, txt: plural(tarefasEventoAtrasadas, "tarefa de evento com prazo vencido", "tarefas de eventos com prazo vencido"), mod: "eventos", icon: PartyPopper, cor: "text-rose-400" },
+    { n: tarefasEventoHoje, txt: plural(tarefasEventoHoje, "tarefa de evento para hoje", "tarefas de eventos para hoje"), mod: "eventos", icon: PartyPopper, cor: "text-amber-400" },
     { n: requisicoesPendentes.length, txt: plural(requisicoesPendentes.length, "requisição de compra aguardando aprovação", "requisições de compra aguardando aprovação"), mod: "gestao_compras", icon: ShoppingCart, cor: "text-amber-400" },
     { n: reparosUrgentes.length, txt: plural(reparosUrgentes.length, "reparo urgente em aberto", "reparos urgentes em aberto"), mod: "manutencao", icon: Wrench, cor: "text-rose-400" },
     { n: checklistVencido.length, txt: plural(checklistVencido.length, "tarefa vencida ou de alta prioridade no checklist", "tarefas vencidas ou de alta prioridade no checklist"), mod: "checklist", icon: AlertTriangle, cor: "text-rose-400" },
@@ -295,11 +304,19 @@ export default function MeuDiaModule({ onNavigate }: Props) {
 
         {/* Coluna lateral: o que tá pegando */}
         <div className="lg:col-span-2 space-y-5">
-          {eventosHoje.length > 0 && (
-            <div className={`${card} border-cyan-500/30`}>
+          {(eventosHoje.length > 0 || privadosHoje.length > 0) && (
+            <div className={`${card} border-cyan-500/30 space-y-2`}>
               <h3 className="text-sm font-bold text-white flex items-center gap-2 mb-2">
                 <Calendar className="h-4 w-4 text-cyan-400" /> Programação de hoje
               </h3>
+              {privadosHoje.map(ev => (
+                <button key={ev.id} onClick={() => onNavigate("eventos")} className="block text-left text-sm text-slate-300 hover:text-white cursor-pointer">
+                  <span className="font-semibold text-white">{ev.nome}</span> · {ev.tipo}
+                  <div className="text-[11px] text-slate-500">
+                    {ev.horarioInicio || "—"}{ev.horarioFim ? ` às ${ev.horarioFim}` : ""}{ev.convidados ? ` · ${ev.convidados} pessoas` : ""}{ev.formato === "Exclusivo" ? " · casa fechada" : ""} · {ev.status}
+                  </div>
+                </button>
+              ))}
               {eventosHoje.map(ev => (
                 <div key={ev.id} className="text-sm text-slate-300">
                   <span className="font-semibold text-white">{ev.artistaNome}</span> · {ev.tipoEvento}
