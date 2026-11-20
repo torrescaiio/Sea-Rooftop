@@ -19,7 +19,9 @@ import {
   Activity,
   Sparkles,
   ChevronRight,
-  Tag
+  Tag,
+  Sun,
+  Megaphone
 } from "lucide-react";
 import { isFirebaseActive } from "../firebase";
 
@@ -31,6 +33,8 @@ interface SidebarProps {
 }
 
 export const MENU_ITEMS = [
+  { id: "meu_dia", name: "Meu Dia", icon: Sun },
+  { id: "briefing", name: "Briefing do Turno", icon: Megaphone },
   { id: "dashboard", name: "Visão Geral", icon: LayoutDashboard },
   { id: "gestao_compras", name: "Requisições de Compras", icon: ShoppingCart },
   { id: "fichas_tecnicas", name: "Fichas Técnicas", icon: BookOpen },
@@ -67,12 +71,16 @@ export default function Sidebar({ activeModule, setActiveModule, user, onSignOut
   const currentModule = menuItems.find(m => m.id === activeModule) || menuItems[0];
 
   // Módulos prioritários para a Bottom Navigation rápida no celular
-  const bottomQuickModules = [
-    menuItems.find(m => m.id === "gestao_compras") || menuItems.find(m => m.id === "dashboard"),
-    menuItems.find(m => m.id === "fichas_tecnicas"),
-    menuItems.find(m => m.id === "dashboard"),
-    menuItems.find(m => m.id === "relatorios") || menuItems.find(m => m.id === "checklist"),
-  ].filter(Boolean) as typeof MENU_ITEMS;
+  // Os 4 primeiros módulos disponíveis desta lista de prioridade
+  const bottomQuickModules = ["meu_dia", "briefing", "gestao_compras", "fichas_tecnicas", "dashboard", "relatorios", "checklist"]
+    .map(id => menuItems.find(m => m.id === id))
+    .filter(Boolean)
+    .slice(0, 4) as typeof MENU_ITEMS;
+
+  const ROTULOS_CURTOS: Record<string, string> = {
+    meu_dia: "Meu Dia", briefing: "Briefing", gestao_compras: "Compras", fichas_tecnicas: "Fichas",
+    dashboard: "Início", relatorios: "Vendas", checklist: "Checklist",
+  };
 
   const handleSelectModule = (id: string) => {
     setActiveModule(id);
@@ -252,7 +260,7 @@ export default function Sidebar({ activeModule, setActiveModule, user, onSignOut
             >
               <Icon className={`h-4 w-4 ${isActive ? "text-cyan-400" : "text-slate-500"}`} />
               <span className="text-[10px] leading-none truncate max-w-[64px]">
-                {item.id === "dashboard" ? "Início" : item.id === "fichas_tecnicas" ? "Fichas" : item.id === "relatorios" ? "Vendas" : "Compras"}
+                {ROTULOS_CURTOS[item.id] || item.name}
               </span>
             </button>
           );

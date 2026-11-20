@@ -18,23 +18,27 @@ import RelatoriosVendasModule from "./components/RelatoriosVendasModule";
 import ConfiguracoesModule from "./components/ConfiguracoesModule";
 import FichasTecnicasModule from "./components/FichasTecnicasModule";
 import GestaoDeComprasModule from "./components/GestaoDeComprasModule";
+import MeuDiaModule from "./components/MeuDiaModule";
+import BriefingModule from "./components/BriefingModule";
 import { useAuth, UserRole } from "./context/AuthContext";
-import { Clock, Sun, Shield, ChefHat, Wine } from "lucide-react";
+import { Clock, Sun, Shield, ChefHat, Wine, Lock } from "lucide-react";
 
 export default function App() {
-  const { 
-    user: activeUser, 
-    role, 
-    setRole, 
-    isAdmin, 
-    isChefCozinha, 
-    isChefBar, 
-    isSolicitante, 
-    loading: checkingAuth, 
-    signOut: handleSignOut 
+  const {
+    user: activeUser,
+    role,
+    setRole,
+    isAdmin,
+    isChefCozinha,
+    isChefBar,
+    isSolicitante,
+    isRealAdmin,
+    noAccess,
+    loading: checkingAuth,
+    signOut: handleSignOut
   } = useAuth();
 
-  const [activeModule, setActiveModule] = useState<string>("dashboard");
+  const [activeModule, setActiveModule] = useState<string>("meu_dia");
 
   // Ajusta módulo inicial dependendo do cargo do usuário
   useEffect(() => {
@@ -80,6 +84,24 @@ export default function App() {
     );
   }
 
+  // Login feito, mas a pessoa não foi cadastrada pela gerência
+  if (noAccess) {
+    return (
+      <div className="min-h-[100dvh] bg-slate-950 flex items-center justify-center font-sans p-6">
+        <div className="max-w-sm text-center space-y-4">
+          <Lock className="h-10 w-10 text-slate-500 mx-auto" />
+          <h1 className="text-lg font-bold text-white">Sem acesso ao Command Center</h1>
+          <p className="text-sm text-slate-400">
+            Tua conta ainda não foi liberada. Pede para a gerência te cadastrar em Configurações → Usuários.
+          </p>
+          <button onClick={handleSignOut} className="bg-slate-800 hover:bg-slate-700 text-slate-200 text-sm px-4 py-2 rounded-lg">
+            Sair
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   // Se o usuário não estiver conectado, direciona para o Auth Gate
   if (!activeUser) {
     return <AuthScreen onAuthSuccess={() => {}} />;
@@ -88,6 +110,10 @@ export default function App() {
   // Roteador dinâmico de módulos operacionais
   const renderSelectedModule = () => {
     switch (activeModule) {
+      case "meu_dia":
+        return isSolicitante ? <GestaoDeComprasModule /> : <MeuDiaModule onNavigate={setActiveModule} />;
+      case "briefing":
+        return <BriefingModule />;
       case "dashboard":
         return <DashboardModule />;
       case "gestao_compras":
@@ -174,8 +200,9 @@ export default function App() {
 
             {/* Alternador Rápido de Cargo e Relógio do Sistema */}
             <div className="flex items-center gap-2.5 flex-wrap">
-              {/* Role Quick Selector */}
-              <div className="flex items-center gap-1 bg-slate-900/90 border border-slate-800 rounded-xl p-1 text-[11px]">
+              {/* "Ver como" (só admin, não grava no banco) */}
+              {isRealAdmin && (
+              <div className="flex items-center gap-1 bg-slate-900/90 border border-slate-800 rounded-xl p-1 text-[11px]" title="Ver o app como cada cargo (só na tua tela)">
                 <button
                   type="button"
                   onClick={() => setRole("admin")}
@@ -213,6 +240,7 @@ export default function App() {
                   🍸 Bar
                 </button>
               </div>
+              )}
 
               {/* System Date Clock */}
               <div className="hidden sm:flex items-center px-3 py-1.5 bg-black/40 rounded-full border border-white/[0.06] space-x-2 text-[11px] text-slate-300 font-mono shadow-inner">
