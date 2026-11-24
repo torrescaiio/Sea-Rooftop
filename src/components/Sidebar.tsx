@@ -22,7 +22,8 @@ import {
   Tag,
   Sun,
   Megaphone,
-  PartyPopper
+  PartyPopper,
+  Receipt
 } from "lucide-react";
 import { isFirebaseActive } from "../firebase";
 
@@ -52,6 +53,7 @@ export const MENU_ITEMS = [
   { id: "balanco_eventos", name: "Balanço de Eventos", icon: Activity },
   { id: "contatos", name: "Agenda de Contatos", icon: BookOpen },
   { id: "extras", name: "Diárias", icon: Briefcase },
+  { id: "reembolsos", name: "Reembolsos", icon: Receipt },
   { id: "relatorios", name: "Relatórios & KPIs", icon: FileSpreadsheet },
   { id: "configuracoes", name: "Configurações", icon: Settings },
 ];

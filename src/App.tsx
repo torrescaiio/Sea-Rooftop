@@ -21,6 +21,7 @@ import GestaoDeComprasModule from "./components/GestaoDeComprasModule";
 import MeuDiaModule from "./components/MeuDiaModule";
 import BriefingModule from "./components/BriefingModule";
 import EventosModule from "./components/EventosModule";
+import ReembolsosModule from "./components/ReembolsosModule";
 import { useAuth, UserRole } from "./context/AuthContext";
 import { Clock, Sun, Shield, ChefHat, Wine, Lock } from "lucide-react";
 
@@ -117,6 +118,8 @@ export default function App() {
         return <BriefingModule />;
       case "eventos":
         return <EventosModule onNavigate={setActiveModule} />;
+      case "reembolsos":
+        return <ReembolsosModule onNavigate={setActiveModule} />;
       case "dashboard":
         return <DashboardModule />;
       case "gestao_compras":

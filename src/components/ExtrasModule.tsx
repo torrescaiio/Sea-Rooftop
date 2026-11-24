@@ -182,7 +182,7 @@ export default function ExtrasModule() {
         ex.nome,
         ex.funcao,
         ex.motivo || "-",
-        `R$ ${ex.valor.toFixed(2)}`,
+        Number(ex.valor).toLocaleString("pt-BR", { style: "currency", currency: "BRL" }),
         ex.statusPagamento || "A Pagar"
       ]);
     });
@@ -201,7 +201,7 @@ export default function ExtrasModule() {
     doc.setFontSize(12);
     doc.setTextColor(0);
     doc.setFont("helvetica", "bold");
-    doc.text(`Total Gasto no Período: R$ ${totalGasto.toFixed(2)}`, 14, finalY + 10);
+    doc.text(`Total Gasto no Período: ${totalGasto.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}`, 14, finalY + 10);
 
     doc.save(`relatorio_diarias_${reportStartDate}_a_${reportEndDate}.pdf`);
     setShowReportModal(false);
