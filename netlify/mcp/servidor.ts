@@ -10,7 +10,7 @@
 //   /mcp              protocolo MCP (JSON-RPC)
 // ---------------------------------------------------------------------------
 import { randomBytes } from "node:crypto";
-import { DURACAO, ESCOPO, emailsPermitidos, redirecionamentoPermitido } from "./config.ts";
+import { DURACAO, ESCOPO, carregarChave, emailsPermitidos, redirecionamentoPermitido } from "./config.ts";
 import { cifrar, decifrar, agora, s256, type DadosToken } from "./tokens.ts";
 import { abrirSessao, ehAdmin, ErroFirestore, type Sessao } from "./firestore.ts";
 import { FERRAMENTAS, ferramentaPorNome } from "./ferramentas.ts";
@@ -280,6 +280,7 @@ export const tratar = async (req: Request): Promise<Response> => {
     if (caminho.startsWith("/.well-known/oauth-authorization-server") || caminho.startsWith("/.well-known/openid-configuration")) {
       return json(metadadosServidor(base));
     }
+    await carregarChave();
     if (caminho === "/oauth/register" && req.method === "POST") return await registrar(req);
     if (caminho === "/oauth/authorize" && req.method === "GET") return autorizarGet(req);
     if (caminho === "/oauth/authorize" && req.method === "POST") return await autorizarPost(req);
@@ -288,7 +289,7 @@ export const tratar = async (req: Request): Promise<Response> => {
     return json({ error: "Não encontrado." }, 404);
   } catch (e: any) {
     console.error("[mcp] erro:", e);
-    const configuracao = String(e?.message || "").includes("MCP_SECRET");
+    const configuracao = String(e?.message || "").includes("chave do conector");
     return json({ error: "server_error", error_description: configuracao ? e.message : "Erro interno." }, 500);
   }
 };

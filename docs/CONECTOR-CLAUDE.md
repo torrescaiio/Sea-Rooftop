@@ -8,13 +8,13 @@ Com este conector, você conversa com o Claude (no computador ou no celular) e e
 - Para conectar, o Claude abre uma página do próprio Command Center, você entra com **o seu login de sempre** e toca em **Autorizar**.
 - O conector acessa o Firestore **como você**: as regras de segurança (`firestore.rules`) continuam valendo e tudo o que ele grava fica com o seu e-mail em `createdBy` (e `criadoVia: "Claude"`).
 - **Apenas admin** consegue conectar. Dá para restringir ainda mais a uma lista de e-mails (recomendado: só o seu).
-- Não precisa de conta de serviço nem de chave do Google. O único segredo é uma chave aleatória guardada no Netlify (nunca no GitHub).
+- Não precisa de conta de serviço nem de chave do Google. O único segredo é uma chave aleatória que o próprio conector cria e guarda no Netlify (nunca no GitHub).
 
 ### Por que esta opção
 
 | Opção | Custo | Trabalho para você | Segurança |
 |---|---|---|---|
-| **Netlify Function + seu login (escolhida)** | R$ 0 | Criar 1 variável no Netlify | Regras do Firestore valem; só admin; nada de chave do Google |
+| **Netlify Function + seu login (escolhida)** | R$ 0 | Nenhum (chave automática) | Regras do Firestore valem; só admin; nada de chave do Google |
 | Netlify Function + conta de serviço (Firebase Admin) | R$ 0 | Criar conta de serviço, baixar chave JSON, colar no Netlify | A chave ignora as regras do Firestore; se vazar, abre tudo |
 | Cloud Run | R$ 0 a poucos reais | Configurar projeto, faturamento, deploy separado | Igual à anterior, com mais peças para manter |
 
@@ -26,36 +26,24 @@ Com este conector, você conversa com o Claude (no computador ou no celular) e e
 
 ## Passo a passo
 
-### 1. Gerar a chave secreta (no seu PC)
+### 1. Chave secreta: automática
 
-Abra o PowerShell e rode o comando abaixo. Ele gera uma chave aleatória e **copia para a área de transferência**. Não precisa ver nem anotar a chave.
+Não precisa fazer nada. Na primeira vez que o conector é usado, ele gera sozinho uma chave aleatória e guarda no armazenamento interno do Netlify (**Netlify Blobs**, loja `conector-claude`). Ninguém precisa ver nem copiar essa chave.
 
-```powershell
-$b = New-Object byte[] 32; [Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($b); [Convert]::ToBase64String($b) | Set-Clipboard
-```
+(Opcional: se um dia quiser usar uma chave própria, crie a variável `MCP_SECRET` no Netlify com pelo menos 32 caracteres; ela passa a valer no lugar da automática.)
 
-### 2. Cadastrar as variáveis no Netlify
+### 2. Restringir ao seu e-mail (recomendado)
 
-1. Entre em [app.netlify.com](https://app.netlify.com) e abra o site do Command Center.
-2. Vá em **Site configuration → Environment variables → Add a variable → Add a single variable**.
-3. Crie a primeira:
-   - **Key:** `MCP_SECRET`
-   - **Value:** cole (Ctrl+V) a chave do passo 1
-   - Marque **Contains secret values** e salve.
-4. Crie a segunda:
-   - **Key:** `MCP_ALLOWED_EMAILS`
-   - **Value:** o seu e-mail de login do Command Center (para mais de um, separe por vírgula)
-   - Salve.
+Sem isso, qualquer usuário com cargo **admin** consegue conectar o Claude. Para liberar só para você:
 
-### 3. Publicar
+1. Entre em [app.netlify.com](https://app.netlify.com) e abra o site **searooftop**.
+2. **Site configuration → Environment variables → Add a variable → Add a single variable**.
+3. **Key:** `MCP_ALLOWED_EMAILS` · **Value:** o seu e-mail de login (para mais de um, separe por vírgula). Salve.
+4. **Deploys → Trigger deploy → Deploy site** para valer.
 
-Depois que o código do conector estiver na `main` (o Claude faz o commit e o push quando você autorizar), o Netlify publica sozinho. Se você criou as variáveis **depois** da última publicação, vá em **Deploys → Trigger deploy → Deploy site** para elas valerem.
+### 3. Conferir
 
-Para conferir, abra no navegador (troque pelo endereço do seu site):
-
-`https://SEU-SITE.netlify.app/.well-known/oauth-authorization-server`
-
-Deve aparecer um texto que começa com `{"issuer":`. Se aparecer `MCP_SECRET não configurado`, revise o passo 2 e publique de novo.
+Abra `https://searooftop.netlify.app/.well-known/oauth-authorization-server`. Deve aparecer um texto que começa com `{"issuer":`.
 
 ### 4. Adicionar o conector no Claude
 
@@ -65,7 +53,7 @@ Faça isto uma vez, no computador (Claude Desktop) ou em [claude.ai](https://cla
 2. Clique em **Adicionar conector personalizado** (*Add custom connector*).
 3. Preencha:
    - **Nome:** `Sea Rooftop`
-   - **URL:** `https://SEU-SITE.netlify.app/mcp`
+   - **URL:** `https://searooftop.netlify.app/mcp`
 4. Clique em **Adicionar** e depois em **Conectar**.
 5. Abre a página **"Conectar o Claude · Sea Rooftop"**. Se você já estiver logado no Command Center naquele navegador, ela mostra o seu e-mail. Se não, entre com o seu e-mail e senha.
 6. Toque em **Autorizar**. Pronto.
@@ -99,7 +87,7 @@ Fora do conector: `user_roles` (cargos) e as fotos de comprovantes.
 
 ## Segurança
 
-- **Desconectar na hora (botão de pânico):** troque o valor de `MCP_SECRET` no Netlify (passo 1 e 2 de novo) e faça um novo deploy. Todos os acessos do Claude param de funcionar.
+- **Desconectar na hora (botão de pânico):** no Netlify, abra **Blobs → conector-claude** e apague a chave `chave` (ou crie/troque a variável `MCP_SECRET` e faça um novo deploy). Para garantir que vale na hora, faça também um novo deploy (Deploys → Trigger deploy). O conector cria uma chave nova e é só conectar o Claude de novo.
 - **Trocar a senha** do Command Center também derruba o acesso do Claude. Basta conectar de novo depois.
 - Tirar o cargo de admin de alguém bloqueia essa pessoa no conector em até 5 minutos.
 - O login dura 90 dias sem uso. Depois disso o Claude pede para conectar de novo.
@@ -109,5 +97,5 @@ Fora do conector: `user_roles` (cargos) e as fotos de comprovantes.
 
 - Código: `netlify/functions/mcp.mts` (entrada) e `netlify/mcp/` (lógica). Os formatos das coleções ficam em `netlify/mcp/colecoes.ts`. Ao mudar um módulo do app, atualize ali também.
 - O checklist de eventos e a rotina reutilizam `src/eventosUtils.ts` e `src/rotinaUtils.ts`.
-- Teste local: rode o app (`npm run dev`) e, em outro terminal, `npx tsx scripts/mcp-dev.ts` com `MCP_SECRET` definido. O Vite encaminha `/mcp`, `/oauth` e `/.well-known` para a porta 8788.
+- Teste local: rode o app (`npm run dev`) e, em outro terminal, `npx tsx scripts/mcp-dev.ts` com `MCP_SECRET` definido (fora do Netlify não há Blobs). O Vite encaminha `/mcp`, `/oauth` e `/.well-known` para a porta 8788.
 - Fuso usado nas datas do dia: `America/Fortaleza` (mesmo horário de João Pessoa).
