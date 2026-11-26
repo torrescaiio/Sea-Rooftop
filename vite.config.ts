@@ -12,7 +12,9 @@ export default defineConfig(() => {
       VitePWA({
         registerType: 'autoUpdate',
         workbox: {
-          maximumFileSizeToCacheInBytes: 5 * 1024 * 1024
+          maximumFileSizeToCacheInBytes: 5 * 1024 * 1024,
+          // Rotas do conector do Claude (Netlify Function) não podem cair no app em cache
+          navigateFallbackDenylist: [/^\/mcp/, /^\/oauth\//, /^\/\.well-known\//]
         },
         manifest: {
           name: 'Sea Rooftop Command Center',
@@ -47,6 +49,12 @@ export default defineConfig(() => {
       hmr: process.env.DISABLE_HMR !== 'true',
       // Disable file watching when DISABLE_HMR is true to save CPU during agent edits.
       watch: process.env.DISABLE_HMR === 'true' ? null : {},
+      // Em desenvolvimento, as rotas do conector vão para o servidor local (scripts/mcp-dev.ts)
+      proxy: {
+        '/mcp': 'http://localhost:8788',
+        '/oauth': 'http://localhost:8788',
+        '/.well-known/oauth-': 'http://localhost:8788',
+      },
     },
   };
 });
